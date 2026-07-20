@@ -19,6 +19,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QPushButton, QWidget
 
+from theme.manager import ThemeManager
+
 
 class PRTButton(QPushButton):
     """Standard reusable push button for the PRT ecosystem."""
@@ -42,3 +44,15 @@ class PRTButton(QPushButton):
         self.setObjectName("PRTButton")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setMinimumSize(120, 38)
+
+        self.setStyleSheet(
+        f"""
+        QPushButton#PRTButton {{
+            background-color: {ThemeManager.primary_color()};
+            color: {ThemeManager.text_color()};
+            border: none;
+            border-radius: 6px;
+            padding: 8px;
+    }}
+    """
+)        

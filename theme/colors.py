@@ -1,0 +1,10 @@
+"""
+PRT Labs - Default Color Palette
+"""
+
+PRIMARY = "#0078D4"
+BACKGROUND = "#202020"
+TEXT = "#FFFFFF"
+SUCCESS = "#28A745"
+WARNING = "#FFC107"
+ERROR = "#DC3545"

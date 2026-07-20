@@ -2,8 +2,7 @@ import sys
 
 from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
 
-from widgets import PRTButton, PRTLabel
-
+from widgets import PRTButton, PRTLabel, PRTCard
 
 def main() -> int:
     app = QApplication(sys.argv)
@@ -14,8 +13,12 @@ def main() -> int:
 
     layout = QVBoxLayout(window)
 
-    layout.addWidget(PRTLabel("Primeiros widgets do PRT Core"))
-    layout.addWidget(PRTButton("Testar botão"))
+    card = PRTCard()
+
+    card.add_widget(PRTLabel("Primeiro Card do PRT Core"))
+    card.add_widget(PRTButton("Download"))
+
+    layout.addWidget(card)
 
     window.show()
 

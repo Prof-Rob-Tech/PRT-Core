@@ -7,7 +7,7 @@ Module.....: Widgets
 Class......: PRTCard
 
 Description:
-    Reusable card container.
+    Reusable card container with optional title.
 
 Developer..: Prof Rob Tech
 ===========================================================
@@ -18,43 +18,64 @@ from typing import Optional
 from PySide6.QtWidgets import QFrame, QVBoxLayout, QWidget
 
 from theme.manager import ThemeManager
+from widgets.label import PRTLabel
 
 
 class PRTCard(QFrame):
+    """Reusable card container for PRT Labs applications."""
 
     def __init__(
         self,
+        title: str = "",
         parent: Optional[QWidget] = None,
     ) -> None:
-
         super().__init__(parent)
 
+        self._title = title
+        self._layout = QVBoxLayout(self)
+
         self._configure()
+        self._build_title()
 
     def _configure(self) -> None:
+        """Configure the card appearance and internal layout."""
 
         self.setObjectName("PRTCard")
 
         self.setStyleSheet(
             f"""
             QFrame#PRTCard {{
-
                 background-color: {ThemeManager.background_color()};
-
                 border: 1px solid #404040;
-
                 border-radius: 10px;
-
             }}
             """
         )
 
-        self.layout = QVBoxLayout(self)
+        self._layout.setContentsMargins(15, 15, 15, 15)
+        self._layout.setSpacing(10)
 
-        self.layout.setContentsMargins(15, 15, 15, 15)
+    def _build_title(self) -> None:
+        """Create the title label when a title was provided."""
 
-        self.layout.setSpacing(10)
+        if not self._title:
+            return
 
-    def add_widget(self, widget):
+        title_label = PRTLabel(self._title)
 
-        self.layout.addWidget(widget)
+        title_label.setStyleSheet(
+            f"""
+            QLabel {{
+                color: {ThemeManager.text_color()};
+                font-size: 16px;
+                font-weight: bold;
+            }}
+            """
+        )
+
+        self._layout.addWidget(title_label)
+
+    def add_widget(self, widget: QWidget) -> None:
+        """Add a widget to the card content area."""
+
+        self._layout.addWidget(widget)

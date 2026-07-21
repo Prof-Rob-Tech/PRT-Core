@@ -13,9 +13,7 @@ def main() -> int:
 
     layout = QVBoxLayout(window)
 
-    card = PRTCard()
-
-    card.add_widget(PRTLabel("Primeiro Card do PRT Core"))
+    card = PRTCard(title="Downloads")
     card.add_widget(PRTButton("Download"))
 
     layout.addWidget(card)

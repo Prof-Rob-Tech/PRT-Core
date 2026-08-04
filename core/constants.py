@@ -1,0 +1,11 @@
+"""
+Application constants.
+"""
+
+DEFAULT_MARGIN = 16
+
+DEFAULT_SPACING = 12
+
+DEFAULT_RADIUS = 10
+
+DEFAULT_ICON_SIZE = 20

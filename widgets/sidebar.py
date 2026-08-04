@@ -14,6 +14,7 @@ Developer..: Prof Rob Tech
 """
 
 from typing import Optional
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 from widgets.label import PRTLabel
 from widgets.sidebar_button import PRTSidebarButton
@@ -21,6 +22,8 @@ from widgets.sidebar_button import PRTSidebarButton
 
 class PRTSidebar(QWidget):
     """Left navigation panel for PRT Labs applications."""
+
+    navigation_requested = Signal(str)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -84,8 +87,17 @@ class PRTSidebar(QWidget):
         self._layout.addWidget(self.courses)
         self._layout.addWidget(self.settings)
         self._layout.addWidget(self.license)
-        
+
     def connect_main_window(self, window) -> None:
+        """Connect sidebar navigation buttons to PRTMainWindow methods."""
+
+        self.navigation_requested.connect(
+            lambda page_name: (
+                window.show_dashboard()
+                if page_name == "dashboard"
+                else None
+            )
+        )
 
         self.dashboard.clicked.connect(
             lambda: self._navigate(
@@ -124,12 +136,16 @@ class PRTSidebar(QWidget):
 
         self.set_selected_button(self.dashboard)
 
-    def _navigate(self, button, page_callback) -> None:
+    def _navigate(self, button, destination) -> None:
 
         self.set_selected_button(button)
 
-        page_callback()
-    
+        if callable(destination):
+            destination()
+            return
+
+        self.navigation_requested.emit(destination.value)
+
     def set_selected_button(self, selected_button) -> None:
 
         buttons = (
@@ -141,7 +157,6 @@ class PRTSidebar(QWidget):
         )
 
         for button in buttons:
-
             button.set_selected(button is selected_button)
 
     def _build_footer(self) -> None:

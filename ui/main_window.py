@@ -6,18 +6,13 @@ Project....: PRT Core
 Class......: PRTMainWindow
 
 Description:
-    Base window for all PRT Labs applications.
+    Base window for all PRT Labs applications, featuring a
+    sidebar, fixed topbar, dynamic workspace area, and
+    bottom status bar.
 
 Developer..: Prof Rob Tech
 ===========================================================
 """
-from ui.pages import (
-    DashboardPage,
-    DownloadsPage,
-    CoursesPage,
-    SettingsPage,
-    LicensePage,
-)
 
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -25,6 +20,16 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from ui.pages import (
+    CoursesPage,
+    DashboardPage,
+    DownloadsPage,
+    LicensePage,
+    SettingsPage,
+)
+from widgets.statusbar import PRTStatusBar
+from widgets.topbar import PRTTopBar
 
 
 class PRTMainWindow(QMainWindow):
@@ -37,30 +42,45 @@ class PRTMainWindow(QMainWindow):
     def _build_ui(self) -> None:
 
         self.setWindowTitle("PRT Application")
-
-        self.resize(1200, 700)
+        self.resize(1200, 750)
 
         central = QWidget()
-
         self.setCentralWidget(central)
 
-        # Layout principal (Sidebar + Workspace)
-        self._layout = QHBoxLayout(central)
+        # Layout Vertical Principal (Área Superior + Barra de Status)
+        self._root_layout = QVBoxLayout(central)
+        self._root_layout.setContentsMargins(0, 0, 0, 0)
+        self._root_layout.setSpacing(0)
 
+        # Container para a Área Superior (Sidebar + Workspace)
+        self._top_container = QWidget()
+        self._layout = QHBoxLayout(self._top_container)
         self._layout.setContentsMargins(0, 0, 0, 0)
-
         self._layout.setSpacing(0)
 
-        # Área central
+        # Área de Conteúdo Central (Workspace = TopBar Fixa + Páginas Dinâmicas)
         self._workspace = QWidget()
-
         self._workspace_layout = QVBoxLayout(self._workspace)
-
         self._workspace_layout.setContentsMargins(20, 20, 20, 20)
+        self._workspace_layout.setSpacing(0)
 
-        self._workspace_layout.setSpacing(15)
+        # 1. Adiciona a Barra Superior Fixa
+        self._top_bar = PRTTopBar()
+        self._workspace_layout.addWidget(self._top_bar)
+
+        # 2. Adiciona o Container Dinâmico de Páginas
+        self._page_container = QWidget()
+        self._page_layout = QVBoxLayout(self._page_container)
+        self._page_layout.setContentsMargins(0, 0, 0, 0)
+        self._workspace_layout.addWidget(self._page_container)
 
         self._layout.addWidget(self._workspace)
+
+        # Instancia e posiciona a barra de status no rodapé
+        self._status_bar = PRTStatusBar()
+
+        self._root_layout.addWidget(self._top_container)
+        self._root_layout.addWidget(self._status_bar)
 
         self._current_page = None
 
@@ -72,20 +92,17 @@ class PRTMainWindow(QMainWindow):
 
     def add_widget(self, widget: QWidget) -> None:
 
+        # Remove a página atual apenas do container de páginas
         if self._current_page is not None:
-
-            self._workspace_layout.removeWidget(self._current_page)
-
+            self._page_layout.removeWidget(self._current_page)
             self._current_page.deleteLater()
 
         self._current_page = widget
-
-        self._workspace_layout.addWidget(widget)
+        self._page_layout.addWidget(widget)
 
     def show_dashboard(self) -> None:
 
         self.add_widget(DashboardPage())
-
 
     def show_downloads(self) -> None:
 
@@ -95,11 +112,9 @@ class PRTMainWindow(QMainWindow):
 
         self.add_widget(CoursesPage())
 
-
     def show_settings(self) -> None:
 
         self.add_widget(SettingsPage())
-
 
     def show_license(self) -> None:
 

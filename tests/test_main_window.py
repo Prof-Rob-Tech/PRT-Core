@@ -32,7 +32,7 @@ def main() -> int:
         PRTButton("Download")
     )
 
-    window.add_widget(card)
+    #window.add_widget(card)
 
     window.show()
 

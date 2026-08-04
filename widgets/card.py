@@ -14,10 +14,8 @@ Developer..: Prof Rob Tech
 """
 
 from typing import Optional
-
 from PySide6.QtWidgets import QFrame, QVBoxLayout, QWidget
-
-from theme.manager import ThemeManager
+from theme import Style
 from widgets.label import PRTLabel
 
 
@@ -43,13 +41,7 @@ class PRTCard(QFrame):
         self.setObjectName("PRTCard")
 
         self.setStyleSheet(
-            f"""
-            QFrame#PRTCard {{
-                background-color: {ThemeManager.background_color()};
-                border: 1px solid #404040;
-                border-radius: 10px;
-            }}
-            """
+            Style.card.normal()
         )
 
         self._layout.setContentsMargins(15, 15, 15, 15)
@@ -64,15 +56,15 @@ class PRTCard(QFrame):
         title_label = PRTLabel(self._title)
 
         title_label.setStyleSheet(
-            f"""
-            QLabel {{
-                color: {ThemeManager.text_color()};
-                font-size: 16px;
+        """
+            QLabel {
+                font-size: 18px;
                 font-weight: bold;
-            }}
-            """
+                color: white;
+            }
+         """
         )
-
+        
         self._layout.addWidget(title_label)
 
     def add_widget(self, widget: QWidget) -> None:

@@ -9,19 +9,21 @@ Class......: PRTMainWindow
 Description:
     Main application window supporting external sidebar insertion,
     routing callbacks, page switching, live status bar, native OS notifications,
-    and Ctrl+K global search filtering.
+    Ctrl+K global search, and system tray minimize behavior.
 
 Developer..: Prof Rob Tech
 ===========================================================
 """
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtGui import QAction, QCloseEvent, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
+    QApplication,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMenu,
     QPushButton,
     QStackedWidget,
     QStyle,
@@ -47,6 +49,8 @@ class PRTMainWindow(QMainWindow):
         self.resize(1100, 680)
 
         self._sidebar = None
+        self._force_exit = False  # Controla se deve fechar de fato ou minimizar para o tray
+
         self._build_ui()
         self._setup_global_search()
         self._init_tray_icon()
@@ -143,33 +147,109 @@ class PRTMainWindow(QMainWindow):
 
     def _setup_global_search(self) -> None:
         """Configura o atalho Ctrl+K e a busca em tempo real."""
-        # Atalho do Teclado (Ctrl + K)
         self.shortcut_search = QShortcut(QKeySequence("Ctrl+K"), self)
         self.shortcut_search.activated.connect(self._focus_search)
-
-        # Evento ao digitar no campo de busca
         self.search_input.textChanged.connect(self._on_search_text_changed)
 
     def _focus_search(self) -> None:
-        """Dá foco na caixa de texto do header e seleciona todo o conteúdo."""
         self.search_input.setFocus()
         self.search_input.selectAll()
 
     def _on_search_text_changed(self, text: str) -> None:
-        """Redireciona para a aba de Cursos e filtra os vídeos em tempo real."""
         if text.strip() and self.page_stack.currentIndex() != 2:
-            self.navigate_to(2)  # Muda automaticamente para a aba de Cursos ao digitar
+            self.navigate_to(2)
 
         courses_page = self.page_stack.widget(2)
         if isinstance(courses_page, CoursesPage):
             courses_page.filter_media(text)
 
     def _init_tray_icon(self) -> None:
+        """Inicializa a bandeja do sistema com menu de contexto e ações rápidas."""
         self.tray_icon = QSystemTrayIcon(self)
         app_icon = self.style().standardIcon(QStyle.SP_ComputerIcon)
         self.tray_icon.setIcon(app_icon)
         self.tray_icon.setToolTip("PRT NEXUS")
+
+        # Menu de Contexto (Botão Direito no Tray)
+        tray_menu = QMenu()
+        tray_menu.setStyleSheet(
+            """
+            QMenu {
+                background-color: #1A1A1E;
+                color: #FFFFFF;
+                border: 1px solid #28282D;
+                border-radius: 6px;
+                padding: 4px;
+            }
+            QMenu::item {
+                padding: 6px 20px;
+                border-radius: 4px;
+            }
+            QMenu::item:selected {
+                background-color: #007ACC;
+            }
+            """
+        )
+
+        act_show = QAction("👁️ Abrir PRT NEXUS", self)
+        act_show.triggered.connect(self._restore_from_tray)
+
+        act_pause_all = QAction("⏸️ Pausar Downloads", self)
+        act_pause_all.triggered.connect(lambda: PRTDownloadManager.instance().pause_all())
+
+        act_resume_all = QAction("▶️ Retomar Downloads", self)
+        act_resume_all.triggered.connect(lambda: PRTDownloadManager.instance().resume_all())
+
+        act_quit = QAction("❌ Sair", self)
+        act_quit.triggered.connect(self._quit_app)
+
+        tray_menu.addAction(act_show)
+        tray_menu.addSeparator()
+        tray_menu.addAction(act_pause_all)
+        tray_menu.addAction(act_resume_all)
+        tray_menu.addSeparator()
+        tray_menu.addAction(act_quit)
+
+        self.tray_icon.setContextMenu(tray_menu)
+        self.tray_icon.activated.connect(self._on_tray_icon_activated)
         self.tray_icon.show()
+
+    def _restore_from_tray(self) -> None:
+        """Restaura a janela principal se estiver escondida ou minimizada."""
+        self.showNormal()
+        self.activateWindow()
+
+    def _quit_app(self) -> None:
+        """Encerra a aplicação definitivamente."""
+        self._force_exit = True
+        QApplication.quit()
+
+    def _on_tray_icon_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
+        """Trata cliques no ícone da bandeja."""
+        if reason in (QSystemTrayIcon.Trigger, QSystemTrayIcon.DoubleClick):
+            if self.isVisible():
+                if self.isMinimized():
+                    self.showNormal()
+                    self.activateWindow()
+                else:
+                    self.hide()
+            else:
+                self._restore_from_tray()
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        """Intercepta o evento de fechar no 'X' para minimizar para a bandeja."""
+        if self._force_exit:
+            event.accept()
+        else:
+            event.ignore()
+            self.hide()
+            if QSystemTrayIcon.isSystemTrayAvailable():
+                self.tray_icon.showMessage(
+                    "PRT NEXUS",
+                    "O aplicativo continua rodando em segundo plano na bandeja.",
+                    QSystemTrayIcon.Information,
+                    2500,
+                )
 
     def add_sidebar(self, sidebar: QWidget) -> None:
         if self._sidebar is not None:

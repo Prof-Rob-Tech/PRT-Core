@@ -3,254 +3,145 @@
 PRT Labs
 
 Project....: PRT Core
-Module.....: UI
+Module.....: UI / Pages
 Class......: CoursesPage
 
 Description:
-    Media and courses gallery displaying downloaded videos
-    with playback, organization, and real-time search filtering.
+    Courses and Media Player page. Auto-discovers media files in
+    downloads folder, supports search filtering, and embeds video player.
 
 Developer..: Prof Rob Tech
 ===========================================================
 """
 
 import os
-from typing import List
-from PySide6.QtCore import Qt, QUrl
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QFrame,
-    QGridLayout,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QScrollArea,
-    QVBoxLayout,
     QWidget,
+    QHBoxLayout,
+    QVBoxLayout,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QSplitter,
+    QFrame
 )
 
 from services.download_manager import PRTDownloadManager
-from ui.pages.base_page import BasePage
+from ui.widgets.video_player_widget import PRTVideoPlayerWidget
 
 
-class VideoCard(QFrame):
-    """Card visual para representar um vídeo/curso baixado."""
+class CoursesPage(QWidget):
+    """Página de Cursos e Player de Vídeos."""
 
-    def __init__(self, file_path: str, parent=None) -> None:
-        super().__init__(parent)
-        self.file_path = file_path
-        self.filename = os.path.basename(file_path)
-
-        self._build_ui()
-
-    def _build_ui(self) -> None:
-        self.setFixedWidth(240)
-        self.setFixedHeight(220)
-        self.setStyleSheet(
-            """
-            QFrame {
-                background-color: #141416;
-                border: 1px solid #26262B;
-                border-radius: 10px;
-            }
-            QFrame:hover {
-                border-color: #007ACC;
-                background-color: #1A1A1E;
-            }
-            """
-        )
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(8)
-
-        # Thumbnail / Ícone
-        thumb_container = QFrame()
-        thumb_container.setStyleSheet(
-            """
-            background-color: #1F1F24;
-            border-radius: 6px;
-            border: none;
-            """
-        )
-        thumb_layout = QVBoxLayout(thumb_container)
-        thumb_layout.setAlignment(Qt.AlignCenter)
-
-        icon_lbl = QLabel("🎬")
-        icon_lbl.setStyleSheet("font-size: 36px; background: transparent;")
-        thumb_layout.addWidget(icon_lbl)
-
-        layout.addWidget(thumb_container, stretch=1)
-
-        # Título
-        name_lbl = QLabel(self.filename)
-        name_lbl.setWordWrap(True)
-        name_lbl.setStyleSheet(
-            "color: #FFFFFF; font-size: 12px; font-weight: bold; border: none;"
-        )
-        name_lbl.setToolTip(self.filename)
-        layout.addWidget(name_lbl)
-
-        # Tamanho
-        size_bytes = os.path.getsize(self.file_path) if os.path.exists(self.file_path) else 0
-        size_str = self._format_size(size_bytes)
-        info_lbl = QLabel(f"Tamanho: {size_str}")
-        info_lbl.setStyleSheet("color: #8E8E93; font-size: 11px; border: none;")
-        layout.addWidget(info_lbl)
-
-        # Botão Play
-        btn_play = QPushButton("▶ Assistir")
-        btn_play.setCursor(Qt.PointingHandCursor)
-        btn_play.setStyleSheet(
-            """
-            QPushButton {
-                background-color: #007ACC;
-                color: #FFFFFF;
-                border: none;
-                border-radius: 5px;
-                padding: 6px;
-                font-weight: bold;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #005A9E;
-            }
-            """
-        )
-        btn_play.clicked.connect(self._play_video)
-        layout.addWidget(btn_play)
-
-    def _play_video(self) -> None:
-        if os.path.exists(self.file_path):
-            QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.abspath(self.file_path)))
-
-    def _format_size(self, size_bytes: float) -> str:
-        for unit in ["B", "KB", "MB", "GB"]:
-            if size_bytes < 1024.0:
-                return f"{size_bytes:.1f} {unit}"
-            size_bytes /= 1024.0
-        return f"{size_bytes:.1f} TB"
-
-
-class CoursesPage(BasePage):
-    """Página de galeria de cursos e vídeos baixados com suporte a busca."""
+    MEDIA_EXTENSIONS = (".mp4", ".mkv", ".webm", ".avi", ".mov", ".m4v", ".mp3")
 
     def __init__(self) -> None:
         super().__init__()
-        self._cards: List[VideoCard] = []
-
-        self._layout = QVBoxLayout(self)
-        self._configure()
         self._build_ui()
+        self.refresh_media_list()
 
-    def showEvent(self, event) -> None:
-        super().showEvent(event)
-        self.reload_media()
-
-    def _configure(self) -> None:
-        self._layout.setContentsMargins(0, 0, 0, 0)
-        self._layout.setSpacing(20)
+        # Atualiza a lista automaticamente se um novo download for concluído
+        PRTDownloadManager.instance().download_completed.connect(lambda *_: self.refresh_media_list())
 
     def _build_ui(self) -> None:
-        top_layout = QHBoxLayout()
-        title = QLabel("Cursos e Mídias Baixadas")
-        title.setStyleSheet("color: #FFFFFF; font-size: 22px; font-weight: bold;")
-        top_layout.addWidget(title)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
 
-        top_layout.addStretch()
-
-        btn_refresh = QPushButton("🔄 Atualizar")
-        btn_refresh.setCursor(Qt.PointingHandCursor)
-        btn_refresh.setStyleSheet(
+        # Splitter permitindo redimensionar a lista e o player
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.setStyleSheet(
             """
-            QPushButton {
-                background-color: #1A1A1E;
-                color: #FFFFFF;
-                border: 1px solid #28282D;
-                border-radius: 6px;
-                padding: 8px 15px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #24242A;
-                border-color: #007ACC;
+            QSplitter::handle {
+                background-color: #18181B;
+                width: 2px;
             }
             """
         )
-        btn_refresh.clicked.connect(self.reload_media)
-        top_layout.addWidget(btn_refresh)
 
-        self._layout.addLayout(top_layout)
+        # Painel Esquerdo: Lista de Vídeos Baixados
+        left_panel = QWidget()
+        left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(10, 10, 10, 10)
 
-        self.scroll_area = QScrollArea()
-        self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setStyleSheet(
+        lbl_title = QLabel("Aulas & Arquivos Baixados")
+        lbl_title.setStyleSheet("color: #FFFFFF; font-size: 14px; font-weight: bold;")
+        left_layout.addWidget(lbl_title)
+
+        self.list_media = QListWidget()
+        self.list_media.setStyleSheet(
             """
-            QScrollArea {
-                border: none;
-                background-color: transparent;
+            QListWidget {
+                background-color: #141416;
+                border: 1px solid #26262B;
+                border-radius: 6px;
+                color: #FFFFFF;
+                font-size: 12px;
             }
-            QScrollBar:vertical {
-                background: #141416;
-                width: 8px;
+            QListWidget::item {
+                padding: 10px;
+                border-bottom: 1px solid #1C1C1F;
             }
-            QScrollBar::handle:vertical {
-                background: #28282D;
+            QListWidget::item:selected {
+                background-color: #007ACC;
+                color: #FFFFFF;
                 border-radius: 4px;
             }
+            QListWidget::item:hover:!selected {
+                background-color: #1A1A1E;
+            }
             """
         )
+        self.list_media.itemClicked.connect(self._on_media_selected)
+        left_layout.addWidget(self.list_media)
 
-        self.container_widget = QWidget()
-        self.container_widget.setStyleSheet("background-color: transparent;")
-        self.grid_layout = QGridLayout(self.container_widget)
-        self.grid_layout.setSpacing(15)
-        self.grid_layout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        splitter.addWidget(left_panel)
 
-        self.scroll_area.setWidget(self.container_widget)
-        self._layout.addWidget(self.scroll_area)
+        # Painel Direito: Player de Vídeo
+        right_panel = QWidget()
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(10, 10, 10, 10)
 
-    def reload_media(self) -> None:
-        """Carrega e renderiza todos os vídeos encontrados na pasta de downloads."""
-        self._cards.clear()
-        while self.grid_layout.count():
-            child = self.grid_layout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
+        self.video_player = PRTVideoPlayerWidget()
+        right_layout.addWidget(self.video_player)
 
-        folder_path = PRTDownloadManager.instance().get_download_folder()
-        if not os.path.exists(folder_path):
-            os.makedirs(folder_path, exist_ok=True)
+        splitter.addWidget(right_panel)
 
-        video_extensions = (".mp4", ".mkv", ".webm", ".avi", ".mov", ".ts", ".m4a")
-        files: List[str] = [
-            os.path.join(folder_path, f)
-            for f in os.listdir(folder_path)
-            if f.lower().endswith(video_extensions)
-        ]
+        # Proporção inicial: 30% lista, 70% player
+        splitter.setSizes([300, 700])
 
-        if not files:
-            empty_lbl = QLabel("Nenhum vídeo ou curso encontrado na pasta de downloads.")
-            empty_lbl.setStyleSheet("color: #8E8E93; font-size: 14px; padding: 20px;")
-            self.grid_layout.addWidget(empty_lbl, 0, 0)
+        layout.addWidget(splitter)
+
+    def refresh_media_list(self) -> None:
+        """Escaneia a pasta de downloads e preenche a lista de arquivos."""
+        self.list_media.clear()
+        download_folder = PRTDownloadManager.instance().get_download_folder()
+
+        if not os.path.exists(download_folder):
             return
 
-        cols = 4
-        for idx, file_path in enumerate(files):
-            card = VideoCard(file_path)
-            self._cards.append(card)
-            row = idx // cols
-            col = idx % cols
-            self.grid_layout.addWidget(card, row, col)
+        for file_name in sorted(os.listdir(download_folder)):
+            if file_name.lower().endswith(self.MEDIA_EXTENSIONS):
+                full_path = os.path.join(download_folder, file_name)
+                item = QListWidgetItem(f"🎥  {file_name}")
+                item.setData(Qt.UserRole, full_path)
+                self.list_media.addItem(item)
 
-    def filter_media(self, query: str) -> None:
-        """Filtra os cards visíveis com base na pesquisa em tempo real."""
-        clean_q = query.lower().strip()
-        visible_count = 0
+        if self.list_media.count() == 0:
+            item = QListWidgetItem("Nenhuma aula encontrada na pasta downloads.")
+            item.setFlags(Qt.NoItemFlags)
+            self.list_media.addItem(item)
 
-        for card in self._cards:
-            if not clean_q or clean_q in card.filename.lower():
-                card.show()
-                visible_count += 1
-            else:
-                card.hide()
+    def filter_media(self, text: str) -> None:
+        """Filtra as aulas exibidas de acordo com a busca (Ctrl+K)."""
+        clean_text = text.lower().strip()
+        for i in range(self.list_media.count()):
+            item = self.list_media.item(i)
+            item_text = item.text().lower()
+            item.setHidden(clean_text not in item_text and clean_text != "")
+
+    def _on_media_selected(self, item: QListWidgetItem) -> None:
+        file_path = item.data(Qt.UserRole)
+        if file_path and os.path.exists(file_path):
+            clean_title = item.text().replace("🎥  ", "")
+            self.video_player.load_video(file_path, title=clean_title)

@@ -20,7 +20,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 from theme.manager import ThemeManager
-from widgets.card import PRTCard
+from ui.widgets.card import PRTCard
 
 
 class PRTStatCard(PRTCard):

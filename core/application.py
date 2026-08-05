@@ -18,7 +18,7 @@ import sys
 from PySide6.QtWidgets import QApplication
 
 from ui.main_window import PRTMainWindow
-from widgets.sidebar import PRTSidebar
+from ui.widgets.sidebar import PRTSidebar
 
 
 class Application:

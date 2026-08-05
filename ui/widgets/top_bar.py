@@ -25,10 +25,10 @@ from PySide6.QtWidgets import (
 )
 
 from theme.manager import ThemeManager
-from widgets.avatar_button import PRTAvatarButton
-from widgets.icon_button import PRTIconButton
-from widgets.label import PRTLabel
-from widgets.search_box import PRTSearchBox
+from ui.widgets.avatar_button import PRTAvatarButton
+from ui.widgets.icon_button import PRTIconButton
+from ui.widgets.label import PRTLabel
+from ui.widgets.search_box import PRTSearchBox
 
 
 class PRTTopBar(QFrame):

@@ -24,10 +24,10 @@ from PySide6.QtWidgets import (
 )
 
 from theme.manager import ThemeManager
-from widgets.button import PRTButton
-from widgets.card import PRTCard
-from widgets.label import PRTLabel
-from widgets.status_badge import PRTStatusBadge
+from ui.widgets.button import PRTButton
+from ui.widgets.card import PRTCard
+from ui.widgets.label import PRTLabel
+from ui.widgets.status_badge import PRTStatusBadge
 
 
 class PRTDownloadCard(PRTCard):

@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from theme.manager import ThemeManager
-from widgets.progress import PRTProgressBar
+from ui.widgets.progress import PRTProgressBar
 
 
 class PRTDownloadItem(QFrame):

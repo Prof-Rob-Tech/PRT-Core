@@ -16,7 +16,7 @@ Developer..: Prof Rob Tech
 from typing import Optional
 from PySide6.QtWidgets import QFrame, QVBoxLayout, QWidget
 from theme import Style
-from widgets.label import PRTLabel
+from ui.widgets.label import PRTLabel
 
 
 class PRTCard(QFrame):

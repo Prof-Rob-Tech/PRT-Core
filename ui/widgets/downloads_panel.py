@@ -25,8 +25,8 @@ from PySide6.QtWidgets import (
 )
 
 from theme.manager import ThemeManager
-from widgets.card import PRTCard
-from widgets.label import PRTLabel
+from ui.widgets.card import PRTCard
+from ui.widgets.label import PRTLabel
 
 
 class PRTDownloadsPanel(PRTCard):

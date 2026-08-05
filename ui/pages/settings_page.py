@@ -3,231 +3,237 @@
 PRT Labs
 
 Project....: PRT Core
-Module.....: UI
+Module.....: UI / Pages
 Class......: SettingsPage
 
 Description:
-    System configuration page allowing users to customize
-    download directories, system behavior, and app settings.
+    Settings page for PRT NEXUS. Supports visual folder selection,
+    explicit save action with visual feedback, and persistence.
 
 Developer..: Prof Rob Tech
 ===========================================================
 """
 
+import json
 import os
-from PySide6.QtCore import QSettings, Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
-    QCheckBox,
     QFileDialog,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
     QVBoxLayout,
-)
-
-from PySide6.QtWidgets import (
-    QCheckBox,
-    QFileDialog,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QMessageBox,  # <--- Adicione este import
-    QPushButton,
-    QVBoxLayout,
+    QWidget,
 )
 
 from services.download_manager import PRTDownloadManager
-from ui.pages.base_page import BasePage
 
 
-class SettingsPage(BasePage):
-    """System settings page."""
+class SettingsPage(QWidget):
+    """Página de Configurações do Sistema."""
 
     def __init__(self) -> None:
         super().__init__()
-        self._settings = QSettings("PRTLabs", "PRTNexus")
-        self._layout = QVBoxLayout(self)
+        self._config_file = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "..", "config.json")
+        )
+        self._pending_folder = ""
 
-        self._configure()
         self._build_ui()
         self._load_saved_settings()
 
-    def _configure(self) -> None:
-        self._layout.setContentsMargins(0, 0, 0, 0)
-        self._layout.setSpacing(20)
-
     def _build_ui(self) -> None:
-        # Título
-        title = QLabel("Configurações do Sistema")
-        title.setStyleSheet("color: #FFFFFF; font-size: 22px; font-weight: bold;")
-        self._layout.addWidget(title)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(20)
 
-        # Seção 1: Downloads e Armazenamento
-        sec1_title = QLabel("Downloads e Armazenamento")
-        sec1_title.setStyleSheet("color: #007ACC; font-size: 14px; font-weight: bold;")
-        self._layout.addWidget(sec1_title)
+        # Título da Página
+        lbl_header = QLabel("Configurações do Sistema")
+        lbl_header.setStyleSheet("color: #FFFFFF; font-size: 18px; font-weight: bold;")
+        layout.addWidget(lbl_header)
 
-        lbl_path = QLabel("Pasta padrão para salvamento de cursos:")
-        lbl_path.setStyleSheet("color: #CCCCCC; font-size: 13px;")
-        self._layout.addWidget(lbl_path)
+        # Card: Diretório de Downloads
+        card_downloads = QFrame()
+        card_downloads.setStyleSheet(
+            """
+            QFrame {
+                background-color: #141416;
+                border: 1px solid #26262B;
+                border-radius: 8px;
+            }
+            """
+        )
+        card_layout = QVBoxLayout(card_downloads)
+        card_layout.setContentsMargins(20, 20, 20, 20)
+        card_layout.setSpacing(15)
 
-        path_layout = QHBoxLayout()
-        path_layout.setSpacing(10)
+        lbl_section_dl = QLabel("📁 Diretório de Downloads")
+        lbl_section_dl.setStyleSheet("color: #FFFFFF; font-size: 14px; font-weight: bold; border: none;")
+        card_layout.addWidget(lbl_section_dl)
 
-        self.input_download_path = QLineEdit()
-        self.input_download_path.setPlaceholderText("Selecione a pasta de downloads...")
-        self.input_download_path.setStyleSheet(
+        lbl_desc = QLabel("Escolha a pasta padrão onde os vídeos e aulas baixados serão salvos:")
+        lbl_desc.setStyleSheet("color: #8E8E93; font-size: 12px; border: none;")
+        card_layout.addWidget(lbl_desc)
+
+        # Seletor de Caminho
+        selector_layout = QHBoxLayout()
+        selector_layout.setSpacing(10)
+
+        self.txt_path = QLineEdit()
+        self.txt_path.setReadOnly(True)
+        current_folder = PRTDownloadManager.instance().get_download_folder()
+        self.txt_path.setText(current_folder)
+        self._pending_folder = current_folder
+        self.txt_path.setStyleSheet(
             """
             QLineEdit {
-                background-color: #141416;
+                background-color: #1C1C1F;
                 border: 1px solid #28282D;
                 border-radius: 6px;
-                color: #FFFFFF;
-                padding: 10px;
-                font-size: 13px;
-            }
-            QLineEdit:focus {
-                border-color: #007ACC;
+                color: #A0A0A5;
+                padding: 8px 12px;
+                font-size: 12px;
             }
             """
         )
+        selector_layout.addWidget(self.txt_path)
 
-        btn_browse = QPushButton("Procurar...")
-        btn_browse.setCursor(Qt.PointingHandCursor)
-        btn_browse.setStyleSheet(
+        self.btn_browse = QPushButton("Procurar...")
+        self.btn_browse.setCursor(Qt.PointingHandCursor)
+        self.btn_browse.setStyleSheet(
             """
             QPushButton {
-                background-color: #1A1A1E;
+                background-color: #28282D;
                 color: #FFFFFF;
-                border: 1px solid #28282D;
+                border: 1px solid #3A3A40;
                 border-radius: 6px;
-                padding: 10px 18px;
-                font-weight: bold;
-                font-size: 13px;
+                padding: 8px 16px;
+                font-size: 12px;
             }
             QPushButton:hover {
-                background-color: #24242A;
-                border-color: #007ACC;
+                background-color: #3A3A40;
             }
             """
         )
-        btn_browse.clicked.connect(self._on_browse_clicked)
+        self.btn_browse.clicked.connect(self._select_folder)
+        selector_layout.addWidget(self.btn_browse)
 
-        path_layout.addWidget(self.input_download_path)
-        path_layout.addWidget(btn_browse)
-        self._layout.addLayout(path_layout)
+        card_layout.addLayout(selector_layout)
 
-        self._layout.addSpacing(15)
+        # Linha inferior de ações (Botão Salvar + Feedback)
+        action_layout = QHBoxLayout()
+        action_layout.setContentsMargins(0, 5, 0, 0)
 
-        # Seção 2: Comportamento do Sistema
-        sec2_title = QLabel("Comportamento do Sistema")
-        sec2_title.setStyleSheet("color: #007ACC; font-size: 14px; font-weight: bold;")
-        self._layout.addWidget(sec2_title)
+        self.lbl_feedback = QLabel("")
+        self.lbl_feedback.setStyleSheet("color: #34C759; font-size: 12px; font-weight: bold; border: none;")
+        action_layout.addWidget(self.lbl_feedback)
 
-        chk_style = """
-            QCheckBox {
-                color: #CCCCCC;
-                font-size: 13px;
-                spacing: 8px;
-            }
-            QCheckBox::indicator {
-                width: 18px;
-                height: 18px;
-                border: 1px solid #28282D;
-                border-radius: 4px;
-                background-color: #141416;
-            }
-            QCheckBox::indicator:checked {
-                background-color: #007ACC;
-                border-color: #007ACC;
-            }
-        """
+        action_layout.addStretch()
 
-        self.chk_autostart = QCheckBox("Iniciar o PRT NEXUS junto com o Windows")
-        self.chk_autostart.setStyleSheet(chk_style)
-
-        self.chk_minimize_tray = QCheckBox("Minimizar para a bandeja do sistema ao fechar")
-        self.chk_minimize_tray.setStyleSheet(chk_style)
-
-        self.chk_notifications = QCheckBox("Exibir notificação no Windows ao concluir um download")
-        self.chk_notifications.setStyleSheet(chk_style)
-
-        self._layout.addWidget(self.chk_autostart)
-        self._layout.addWidget(self.chk_minimize_tray)
-        self._layout.addWidget(self.chk_notifications)
-
-        self._layout.addStretch()
-
-        # Botão Salvar
-        save_layout = QHBoxLayout()
-        save_layout.addStretch()
-
-        btn_save = QPushButton("💾 Salvar Alterações")
-        btn_save.setCursor(Qt.PointingHandCursor)
-        btn_save.setStyleSheet(
+        self.btn_save = QPushButton("💾 Salvar Alterações")
+        self.btn_save.setCursor(Qt.PointingHandCursor)
+        self.btn_save.setStyleSheet(
             """
             QPushButton {
                 background-color: #007ACC;
                 color: #FFFFFF;
                 border: none;
                 border-radius: 6px;
-                padding: 10px 22px;
+                padding: 8px 20px;
                 font-weight: bold;
-                font-size: 13px;
+                font-size: 12px;
             }
             QPushButton:hover {
-                background-color: #005A9E;
+                background-color: #0098FF;
             }
             """
         )
-        btn_save.clicked.connect(self._on_save_clicked)
-        save_layout.addWidget(btn_save)
+        self.btn_save.clicked.connect(self._apply_and_save)
+        action_layout.addWidget(self.btn_save)
 
-        self._layout.addLayout(save_layout)
+        card_layout.addLayout(action_layout)
+        layout.addWidget(card_downloads)
 
-    def _load_saved_settings(self) -> None:
-        """Carrega o caminho salvo do QSettings ou usa a pasta padrão 'downloads'."""
-        default_dir = os.path.abspath("downloads")
-        saved_dir = self._settings.value("download_dir", default_dir)
-        self.input_download_path.setText(saved_dir)
+        # Card: Informações do Aplicativo
+        card_info = QFrame()
+        card_info.setStyleSheet(
+            """
+            QFrame {
+                background-color: #141416;
+                border: 1px solid #26262B;
+                border-radius: 8px;
+            }
+            """
+        )
+        info_layout = QVBoxLayout(card_info)
+        info_layout.setContentsMargins(20, 20, 20, 20)
+        info_layout.setSpacing(10)
 
-        self.chk_autostart.setChecked(self._settings.value("autostart", False, type=bool))
-        self.chk_minimize_tray.setChecked(self._settings.value("minimize_tray", True, type=bool))
-        self.chk_notifications.setChecked(self._settings.value("notifications", True, type=bool))
+        lbl_info_title = QLabel("ℹ️ Sobre o PRT NEXUS")
+        lbl_info_title.setStyleSheet("color: #FFFFFF; font-size: 14px; font-weight: bold; border: none;")
+        info_layout.addWidget(lbl_info_title)
 
-    def _on_browse_clicked(self) -> None:
-        """Abre a caixa de diálogo nativa do Windows/SO para escolher a pasta."""
-        current_path = self.input_download_path.text().strip()
-        if not current_path or not os.path.exists(current_path):
-            current_path = os.path.abspath("downloads")
+        lbl_version = QLabel(
+            "Versão: 1.0.0 Core\n"
+            "Desenvolvido por: Prof Rob Tech (PRT Labs)\n"
+            "Motor de Download: yt-dlp Integrado\n"
+            "Interface: PySide6 Qt Multimedia UI"
+        )
+        lbl_version.setStyleSheet("color: #8E8E93; font-size: 12px; border: none; line-height: 1.6;")
+        info_layout.addWidget(lbl_version)
 
+        layout.addWidget(card_info)
+        layout.addStretch()
+
+    def _select_folder(self) -> None:
+        """Abre a caixa de diálogo para pré-seleção do diretório."""
+        current_dir = self._pending_folder or PRTDownloadManager.instance().get_download_folder()
         selected_dir = QFileDialog.getExistingDirectory(
             self,
-            "Selecionar Pasta para Downloads e Cursos",
-            current_path,
-            QFileDialog.ShowDirsOnly | QFileDialog.DontResolveSymlinks,
+            "Selecionar Pasta de Downloads",
+            current_dir,
         )
 
         if selected_dir:
-            selected_dir = os.path.normpath(selected_dir)
-            self.input_download_path.setText(selected_dir)
+            self._pending_folder = os.path.abspath(selected_dir)
+            self.txt_path.setText(self._pending_folder)
 
-    def _on_save_clicked(self) -> None:
-        """Salva as alterações no registro, atualiza o gerenciador e avisa o usuário."""
-        new_path = self.input_download_path.text().strip()
-        if new_path:
-            os.makedirs(new_path, exist_ok=True)
-            self._settings.setValue("download_dir", new_path)
-            PRTDownloadManager.instance().set_download_folder(new_path)
+    def _apply_and_save(self) -> None:
+        """Aplica as alterações no sistema, salva no JSON e dá feedback visual."""
+        if not self._pending_folder:
+            return
 
-        self._settings.setValue("autostart", self.chk_autostart.isChecked())
-        self._settings.setValue("minimize_tray", self.chk_minimize_tray.isChecked())
-        self._settings.setValue("notifications", self.chk_notifications.isChecked())
+        # Aplica no Gerenciador Ativo
+        PRTDownloadManager.instance().set_download_folder(self._pending_folder)
 
-        # Pop-up de confirmação visual
-        QMessageBox.information(
-            self,
-            "PRT NEXUS",
-            "Configurações salvas com sucesso!"
-        )
+        # Salva no arquivo de configuração
+        self._save_settings(self._pending_folder)
+
+        # Exibe mensagem de confirmação por 3 segundos
+        self.lbl_feedback.setText("✅ Configurações salvas com sucesso!")
+        QTimer.singleShot(3000, lambda: self.lbl_feedback.setText(""))
+
+    def _save_settings(self, download_path: str) -> None:
+        """Persiste o caminho em config.json."""
+        try:
+            data = {"download_folder": download_path}
+            with open(self._config_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=4)
+        except Exception as e:
+            print(f"Erro ao salvar configurações: {e}")
+
+    def _load_saved_settings(self) -> None:
+        """Carrega a configuração salva ao iniciar a tela."""
+        if os.path.exists(self._config_file):
+            try:
+                with open(self._config_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    saved_path = data.get("download_folder")
+                    if saved_path and os.path.exists(saved_path):
+                        self._pending_folder = saved_path
+                        self.txt_path.setText(saved_path)
+                        PRTDownloadManager.instance().set_download_folder(saved_path)
+            except Exception as e:
+                print(f"Erro ao carregar configurações: {e}")

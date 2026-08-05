@@ -3,232 +3,213 @@
 PRT Labs
 
 Project....: PRT Core
-Module.....: UI
+Module.....: UI / Pages
 Class......: DashboardPage
 
 Description:
-    Real-time dashboard displaying system hardware metrics,
-    network traffic speeds, and application download stats.
+    Real-time dynamic dashboard for PRT NEXUS. Displays real storage usage,
+    active downloads count, completion stats, and live transfer speeds.
 
 Developer..: Prof Rob Tech
 ===========================================================
 """
 
 import os
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QFrame,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
     QProgressBar,
     QVBoxLayout,
+    QWidget,
 )
 
 from services.download_manager import PRTDownloadManager
-from services.system_monitor import PRTSystemMonitor
-from ui.pages.base_page import BasePage
 
 
-class DashboardMetricCard(QFrame):
-    """Card visual estilizado para exibir métricas do sistema."""
+class MetricCard(QFrame):
+    """Card reutilizável para exibição de métricas dinamicas."""
 
-    def __init__(self, title: str, icon: str, parent=None) -> None:
-        super().__init__(parent)
+    def __init__(self, title: str, value: str, icon: str, color: str = "#007ACC") -> None:
+        super().__init__()
         self.setStyleSheet(
+            f"""
+            QFrame {{
+                background-color: #141416;
+                border: 1px solid #26262B;
+                border-radius: 8px;
+            }}
+            """
+        )
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(15, 15, 15, 15)
+        layout.setSpacing(5)
+
+        header_layout = QHBoxLayout()
+        lbl_icon = QLabel(icon)
+        lbl_icon.setStyleSheet("font-size: 18px; border: none;")
+        header_layout.addWidget(lbl_icon)
+
+        lbl_title = QLabel(title)
+        lbl_title.setStyleSheet("color: #8E8E93; font-size: 12px; font-weight: bold; border: none;")
+        header_layout.addWidget(lbl_title)
+        header_layout.addStretch()
+
+        layout.addLayout(header_layout)
+
+        self.lbl_value = QLabel(value)
+        self.lbl_value.setStyleSheet(
+            f"color: {color}; font-size: 22px; font-weight: bold; border: none; margin-top: 5px;"
+        )
+        layout.addWidget(self.lbl_value)
+
+    def set_value(self, value: str) -> None:
+        self.lbl_value.setText(value)
+
+
+class DashboardPage(QWidget):
+    """Página do Dashboard com métricas dinâmicas reais."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._build_ui()
+        self._connect_signals()
+
+        # Timer para atualizar métricas de disco e velocidade a cada 1.5s
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self.update_app_stats)
+        self._timer.start(1500)
+
+        self.update_app_stats()
+
+    def _build_ui(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(20)
+
+        # Cabeçalho
+        lbl_header = QLabel("Visão Geral do Sistema")
+        lbl_header.setStyleSheet("color: #FFFFFF; font-size: 18px; font-weight: bold;")
+        layout.addWidget(lbl_header)
+
+        # Linha de Cards de Métricas
+        cards_layout = QHBoxLayout()
+        cards_layout.setSpacing(15)
+
+        self.card_active = MetricCard("DOWNLOADS ATIVOS", "0", "⚡", "#007ACC")
+        self.card_completed = MetricCard("AULAS CONCLUÍDAS", "0", "✅", "#34C759")
+        self.card_storage = MetricCard("ESPAÇO UTILIZADO", "0.0 MB", "💾", "#FF9500")
+        self.card_speed = MetricCard("VELOCIDADE ATUAL", "0.0 KB/s", "🚀", "#AF52DE")
+
+        cards_layout.addWidget(self.card_active)
+        cards_layout.addWidget(self.card_completed)
+        cards_layout.addWidget(self.card_storage)
+        cards_layout.addWidget(self.card_speed)
+
+        layout.addLayout(cards_layout)
+
+        # Painel de Resumo / Estado do Motor
+        card_status = QFrame()
+        card_status.setStyleSheet(
             """
             QFrame {
                 background-color: #141416;
                 border: 1px solid #26262B;
-                border-radius: 10px;
+                border-radius: 8px;
             }
             """
         )
-        self._layout = QVBoxLayout(self)
-        self._layout.setContentsMargins(16, 16, 16, 16)
-        self._layout.setSpacing(10)
+        status_layout = QVBoxLayout(card_status)
+        status_layout.setContentsMargins(20, 20, 20, 20)
+        status_layout.setSpacing(15)
 
-        # Header do Card
-        header_layout = QHBoxLayout()
-        lbl_icon = QLabel(icon)
-        lbl_icon.setStyleSheet("font-size: 20px; border: none; background: transparent;")
-        
-        lbl_title = QLabel(title)
-        lbl_title.setStyleSheet("color: #8E8E93; font-size: 13px; font-weight: bold; border: none;")
+        lbl_status_title = QLabel("🖥️ Status do Motor yt-dlp & Sistema")
+        lbl_status_title.setStyleSheet("color: #FFFFFF; font-size: 14px; font-weight: bold; border: none;")
+        status_layout.addWidget(lbl_status_title)
 
-        header_layout.addWidget(lbl_icon)
-        header_layout.addWidget(lbl_title)
-        header_layout.addStretch()
-        self._layout.addLayout(header_layout)
+        self.lbl_folder_path = QLabel("Diretório Atual: ...")
+        self.lbl_folder_path.setStyleSheet("color: #8E8E93; font-size: 12px; border: none;")
+        status_layout.addWidget(self.lbl_folder_path)
 
-        # Valor Principal
-        self.lbl_value = QLabel("--")
-        self.lbl_value.setStyleSheet("color: #FFFFFF; font-size: 26px; font-weight: bold; border: none;")
-        self._layout.addWidget(self.lbl_value)
+        # Barra de Progresso Visual de Utilização
+        self.lbl_activity_title = QLabel("Atividade Recente dos Workers")
+        self.lbl_activity_title.setStyleSheet("color: #FFFFFF; font-size: 12px; font-weight: bold; border: none;")
+        status_layout.addWidget(self.lbl_activity_title)
 
-        # Subtítulo / Detalhe
-        self.lbl_detail = QLabel("")
-        self.lbl_detail.setStyleSheet("color: #007ACC; font-size: 12px; border: none;")
-        self._layout.addWidget(self.lbl_detail)
-
-        # Barra de Progresso
-        self.pbar = QProgressBar()
-        self.pbar.setFixedHeight(6)
-        self.pbar.setTextVisible(False)
-        self.pbar.setStyleSheet(
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setFixedHeight(8)
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setStyleSheet(
             """
             QProgressBar {
-                background-color: #1F1F23;
+                background-color: #1C1C1F;
                 border: none;
-                border-radius: 3px;
+                border-radius: 4px;
             }
             QProgressBar::chunk {
                 background-color: #007ACC;
-                border-radius: 3px;
+                border-radius: 4px;
             }
             """
         )
-        self._layout.addWidget(self.pbar)
+        status_layout.addWidget(self.progress_bar)
 
-    def update_data(self, value_str: str, detail_str: str, percent: int = 0) -> None:
-        self.lbl_value.setText(value_str)
-        self.lbl_detail.setText(detail_str)
-        self.pbar.setValue(percent)
-
-
-class DashboardPage(BasePage):
-    """Página de Dashboard interativa com métricas de sistema ao vivo."""
-
-    def __init__(self) -> None:
-        super().__init__()
-
-        self._layout = QVBoxLayout(self)
-        self._configure()
-        self._build_ui()
-        self._connect_signals()
-
-    def _configure(self) -> None:
-        self._layout.setContentsMargins(0, 0, 0, 0)
-        self._layout.setSpacing(20)
-
-    def _build_ui(self) -> None:
-        title = QLabel("Dashboard do Sistema")
-        title.setStyleSheet("color: #FFFFFF; font-size: 22px; font-weight: bold;")
-        self._layout.addWidget(title)
-
-        grid = QGridLayout()
-        grid.setSpacing(15)
-
-        # Cards
-        self.card_cpu = DashboardMetricCard("Processador (CPU)", "💻")
-        self.card_ram = DashboardMetricCard("Memória (RAM)", "⚡")
-        self.card_net_down = DashboardMetricCard("Download de Rede", "📥")
-        self.card_net_up = DashboardMetricCard("Upload de Rede", "📤")
-
-        self.card_storage = DashboardMetricCard("Cursos em Disco", "🎬")
-        self.card_active_dl = DashboardMetricCard("Downloads na Fila", "⚡")
-
-        grid.addWidget(self.card_cpu, 0, 0)
-        grid.addWidget(self.card_ram, 0, 1)
-        grid.addWidget(self.card_net_down, 0, 2)
-
-        grid.addWidget(self.card_net_up, 1, 0)
-        grid.addWidget(self.card_storage, 1, 1)
-        grid.addWidget(self.card_active_dl, 1, 2)
-
-        self._layout.addLayout(grid)
-        self._layout.addStretch()
-
-        self._update_app_stats()
-
-    def showEvent(self, event) -> None:
-        """Atualiza dados do app quando a página é visualizada."""
-        super().showEvent(event)
-        self._update_app_stats()
+        layout.addWidget(card_status)
+        layout.addStretch()
 
     def _connect_signals(self) -> None:
-        """Conecta com o monitor de hardware e gerenciador de downloads."""
-        monitor = PRTSystemMonitor.instance()
-        monitor.metrics_updated.connect(self._on_metrics_updated)
+        """Conecta com o Gerenciador de Downloads para reatividade instantânea."""
+        mgr = PRTDownloadManager.instance()
+        mgr.download_added.connect(self.update_app_stats)
+        mgr.progress_updated.connect(lambda *args: self.update_app_stats())
+        mgr.download_completed.connect(lambda *args: self.update_app_stats())
+        mgr.cleared_signal.connect(self.update_app_stats)
 
-        manager = PRTDownloadManager.instance()
-        manager.progress_updated.connect(lambda *_: self._update_app_stats())
-        manager.cleared_signal.connect(self._update_app_stats)
+    def update_app_stats(self) -> None:
+        """Calcula estatísticas reais e atualiza a interface."""
+        mgr = PRTDownloadManager.instance()
+        download_folder = mgr.get_download_folder()
 
-    def _on_metrics_updated(
-        self,
-        cpu: float,
-        ram: float,
-        rx_speed: str,
-        tx_speed: str,
-        ram_used_gb: float,
-        ram_total_gb: float,
-    ) -> None:
-        # CPU
-        self.card_cpu.update_data(
-            value_str=f"{int(cpu)}%",
-            detail_str=f"Uso de Processamento",
-            percent=int(cpu),
-        )
+        # Atualiza a label do caminho
+        self.lbl_folder_path.setText(f"📁 Pasta Ativa: {download_folder}")
 
-        # RAM
-        self.card_ram.update_data(
-            value_str=f"{int(ram)}%",
-            detail_str=f"{ram_used_gb:.1f} GB de {ram_total_gb:.1f} GB",
-            percent=int(ram),
-        )
+        # 1. Contagem de downloads ativos e concluídos na fila
+        active_count = sum(1 for item in mgr.downloads if item.status in ["Baixando", "Iniciando..."])
 
-        # Rede Download
-        self.card_net_down.update_data(
-            value_str=rx_speed,
-            detail_str="Tráfego de Entrada",
-            percent=100 if "MB/s" in rx_speed else 30,
-        )
+        # 2. Arquivos baixados reais no disco
+        total_files = 0
+        total_bytes = 0
 
-        # Rede Upload
-        self.card_net_up.update_data(
-            value_str=tx_speed,
-            detail_str="Tráfego de Saída",
-            percent=100 if "MB/s" in tx_speed else 15,
-        )
-
-    def _update_app_stats(self) -> None:
-        """Calcula estatísticas de arquivos locais e downloads ativos."""
-        manager = PRTDownloadManager.instance()
-        
-        # Downloads ativos
-        active_count = len([d for d in manager.downloads if d.status == "Baixando"])
-        total_in_manager = len(manager.downloads)
-
-        self.card_active_dl.update_data(
-            value_str=f"{active_count} ativos",
-            detail_str=f"Total na lista: {total_in_manager}",
-            percent=100 if active_count > 0 else 0,
-        )
-
-        # Cursos baixados em disco
-        folder_path = manager.get_download_folder()
-        video_count = 0
-        total_size = 0
-
-        if os.path.exists(folder_path):
-            video_exts = (".mp4", ".mkv", ".webm", ".avi", ".mov", ".ts", ".m4a")
-            for root, _, files in os.walk(folder_path):
+        if os.path.exists(download_folder):
+            for root, _, files in os.walk(download_folder):
                 for f in files:
-                    if f.lower().endswith(video_exts):
-                        video_count += 1
-                        total_size += os.path.getsize(os.path.join(root, f))
+                    total_files += 1
+                    file_path = os.path.join(root, f)
+                    try:
+                        total_bytes += os.path.getsize(file_path)
+                    except OSError:
+                        pass
 
-        size_str = self._format_bytes(total_size)
-        self.card_storage.update_data(
-            value_str=f"{video_count} vídeos",
-            detail_str=f"Espaço ocupado: {size_str}",
-            percent=min(video_count * 10, 100),
-        )
+        # 3. Formatação do tamanho em MB/GB
+        if total_bytes >= 1024 * 1024 * 1024:
+            size_str = f"{total_bytes / (1024 ** 3):.2f} GB"
+        else:
+            size_str = f"{total_bytes / (1024 ** 2):.1f} MB"
 
-    def _format_bytes(self, size_bytes: float) -> str:
-        for unit in ["B", "KB", "MB", "GB", "TB"]:
-            if size_bytes < 1024.0:
-                return f"{size_bytes:.1f} {unit}"
-            size_bytes /= 1024.0
-        return f"{size_bytes:.1f} PB"
+        # 4. Velocidade atual (pega a maior velocidade informada ou status)
+        active_speeds = [item.speed for item in mgr.downloads if item.speed not in ["-", "0.0 KB/s"]]
+        current_speed = active_speeds[0] if active_speeds else "0.0 KB/s"
+
+        # Atualização dos Cards
+        self.card_active.set_value(str(active_count))
+        self.card_completed.set_value(str(total_files))
+        self.card_storage.set_value(size_str)
+        self.card_speed.set_value(current_speed)
+
+        # Atualiza barra de progresso com base na média dos ativos
+        if active_count > 0:
+            avg_progress = int(sum(item.progress for item in mgr.downloads) / len(mgr.downloads))
+            self.progress_bar.setValue(avg_progress)
+        else:
+            self.progress_bar.setValue(0)

@@ -1,23 +1,4 @@
-# Virtual Environment
 .venv/
-
-# Python
 __pycache__/
-*.py[cod]
-*$py.class
-
-# VS Code
+*.pyc
 .vscode/
-
-# Build
-build/
-dist/
-
-# Logs
-*.log
-
-# Windows
-Thumbs.db
-
-# macOS
-.DS_Store

@@ -7,17 +7,18 @@ Module.....: UI
 Class......: SettingsPage
 
 Description:
-    Application settings page for managing download paths,
-    system preferences, and notifications.
+    System configuration page allowing users to customize
+    download directories, system behavior, and app settings.
 
 Developer..: Prof Rob Tech
 ===========================================================
 """
 
-from PySide6.QtCore import Qt
+import os
+from PySide6.QtCore import QSettings, Qt
 from PySide6.QtWidgets import (
     QCheckBox,
-    QGroupBox,
+    QFileDialog,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -25,70 +26,83 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,  # <--- Adicione este import
+    QPushButton,
+    QVBoxLayout,
+)
+
+from services.download_manager import PRTDownloadManager
 from ui.pages.base_page import BasePage
 
 
 class SettingsPage(BasePage):
-    """Settings page for user preferences."""
+    """System settings page."""
 
     def __init__(self) -> None:
         super().__init__()
-
+        self._settings = QSettings("PRTLabs", "PRTNexus")
         self._layout = QVBoxLayout(self)
 
         self._configure()
         self._build_ui()
+        self._load_saved_settings()
 
     def _configure(self) -> None:
-        """Configure page margins and spacing."""
         self._layout.setContentsMargins(0, 0, 0, 0)
         self._layout.setSpacing(20)
 
     def _build_ui(self) -> None:
-        """Build the user interface."""
-
         # Título
         title = QLabel("Configurações do Sistema")
         title.setStyleSheet("color: #FFFFFF; font-size: 22px; font-weight: bold;")
         self._layout.addWidget(title)
 
-        group_style = """
-            QGroupBox {
-                background-color: #141416;
-                border: 1px solid #26262B;
-                border-radius: 10px;
-                margin-top: 10px;
-                padding: 20px 15px 15px 15px;
-                color: #007ACC;
-                font-weight: bold;
-                font-size: 14px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                subcontrol-position: top left;
-                padding: 0 10px;
-            }
-            QLabel {
-                color: #FFFFFF;
-                font-size: 13px;
-            }
+        # Seção 1: Downloads e Armazenamento
+        sec1_title = QLabel("Downloads e Armazenamento")
+        sec1_title.setStyleSheet("color: #007ACC; font-size: 14px; font-weight: bold;")
+        self._layout.addWidget(sec1_title)
+
+        lbl_path = QLabel("Pasta padrão para salvamento de cursos:")
+        lbl_path.setStyleSheet("color: #CCCCCC; font-size: 13px;")
+        self._layout.addWidget(lbl_path)
+
+        path_layout = QHBoxLayout()
+        path_layout.setSpacing(10)
+
+        self.input_download_path = QLineEdit()
+        self.input_download_path.setPlaceholderText("Selecione a pasta de downloads...")
+        self.input_download_path.setStyleSheet(
+            """
             QLineEdit {
-                background-color: #1A1A1E;
+                background-color: #141416;
                 border: 1px solid #28282D;
                 border-radius: 6px;
                 color: #FFFFFF;
-                padding: 8px 12px;
+                padding: 10px;
                 font-size: 13px;
             }
             QLineEdit:focus {
                 border-color: #007ACC;
             }
+            """
+        )
+
+        btn_browse = QPushButton("Procurar...")
+        btn_browse.setCursor(Qt.PointingHandCursor)
+        btn_browse.setStyleSheet(
+            """
             QPushButton {
                 background-color: #1A1A1E;
                 color: #FFFFFF;
                 border: 1px solid #28282D;
                 border-radius: 6px;
-                padding: 8px 15px;
+                padding: 10px 18px;
                 font-weight: bold;
                 font-size: 13px;
             }
@@ -96,17 +110,33 @@ class SettingsPage(BasePage):
                 background-color: #24242A;
                 border-color: #007ACC;
             }
+            """
+        )
+        btn_browse.clicked.connect(self._on_browse_clicked)
+
+        path_layout.addWidget(self.input_download_path)
+        path_layout.addWidget(btn_browse)
+        self._layout.addLayout(path_layout)
+
+        self._layout.addSpacing(15)
+
+        # Seção 2: Comportamento do Sistema
+        sec2_title = QLabel("Comportamento do Sistema")
+        sec2_title.setStyleSheet("color: #007ACC; font-size: 14px; font-weight: bold;")
+        self._layout.addWidget(sec2_title)
+
+        chk_style = """
             QCheckBox {
-                color: #FFFFFF;
+                color: #CCCCCC;
                 font-size: 13px;
-                spacing: 10px;
+                spacing: 8px;
             }
             QCheckBox::indicator {
                 width: 18px;
                 height: 18px;
-                border-radius: 4px;
                 border: 1px solid #28282D;
-                background-color: #1A1A1E;
+                border-radius: 4px;
+                background-color: #141416;
             }
             QCheckBox::indicator:checked {
                 background-color: #007ACC;
@@ -114,48 +144,25 @@ class SettingsPage(BasePage):
             }
         """
 
-        # --- Grupo 1: Downloads & Armazenamento ---
-        storage_box = QGroupBox("Downloads & Armazenamento")
-        storage_box.setStyleSheet(group_style)
-        storage_layout = QVBoxLayout(storage_box)
-        storage_layout.setSpacing(12)
+        self.chk_autostart = QCheckBox("Iniciar o PRT NEXUS junto com o Windows")
+        self.chk_autostart.setStyleSheet(chk_style)
 
-        path_label = QLabel("Pasta padrão para salvamento de cursos:")
-        path_layout = QHBoxLayout()
+        self.chk_minimize_tray = QCheckBox("Minimizar para a bandeja do sistema ao fechar")
+        self.chk_minimize_tray.setStyleSheet(chk_style)
 
-        self.path_input = QLineEdit("C:\\Users\\robso\\Downloads\\PRT-Nexus")
-        btn_browse = QPushButton("Procurar...")
-        btn_browse.setCursor(Qt.PointingHandCursor)
+        self.chk_notifications = QCheckBox("Exibir notificação no Windows ao concluir um download")
+        self.chk_notifications.setStyleSheet(chk_style)
 
-        path_layout.addWidget(self.path_input, stretch=1)
-        path_layout.addWidget(btn_browse)
+        self._layout.addWidget(self.chk_autostart)
+        self._layout.addWidget(self.chk_minimize_tray)
+        self._layout.addWidget(self.chk_notifications)
 
-        storage_layout.addWidget(path_label)
-        storage_layout.addLayout(path_layout)
+        self._layout.addStretch()
 
-        # --- Grupo 2: Sistema & Comportamento ---
-        system_box = QGroupBox("Comportamento do Sistema")
-        system_box.setStyleSheet(group_style)
-        system_layout = QVBoxLayout(system_box)
-        system_layout.setSpacing(14)
-
-        chk_autostart = QCheckBox("Iniciar o PRT NEXUS junto com o Windows")
-        chk_tray = QCheckBox("Minimizar para a bandeja do sistema ao fechar")
-        chk_notify = QCheckBox("Exibir notificação no Windows ao concluir um download")
-
-        chk_tray.setChecked(True)
-        chk_notify.setChecked(True)
-
-        system_layout.addWidget(chk_autostart)
-        system_layout.addWidget(chk_tray)
-        system_layout.addWidget(chk_notify)
-
-        # Adiciona os grupos na tela
-        self._layout.addWidget(storage_box)
-        self._layout.addWidget(system_box)
-
-        # Botão de Salvar no Rodapé
+        # Botão Salvar
         save_layout = QHBoxLayout()
+        save_layout.addStretch()
+
         btn_save = QPushButton("💾 Salvar Alterações")
         btn_save.setCursor(Qt.PointingHandCursor)
         btn_save.setStyleSheet(
@@ -165,17 +172,62 @@ class SettingsPage(BasePage):
                 color: #FFFFFF;
                 border: none;
                 border-radius: 6px;
-                padding: 10px 20px;
-                font-size: 13px;
+                padding: 10px 22px;
                 font-weight: bold;
+                font-size: 13px;
             }
             QPushButton:hover {
                 background-color: #005A9E;
             }
             """
         )
-        save_layout.addStretch()
+        btn_save.clicked.connect(self._on_save_clicked)
         save_layout.addWidget(btn_save)
 
         self._layout.addLayout(save_layout)
-        self._layout.addStretch()
+
+    def _load_saved_settings(self) -> None:
+        """Carrega o caminho salvo do QSettings ou usa a pasta padrão 'downloads'."""
+        default_dir = os.path.abspath("downloads")
+        saved_dir = self._settings.value("download_dir", default_dir)
+        self.input_download_path.setText(saved_dir)
+
+        self.chk_autostart.setChecked(self._settings.value("autostart", False, type=bool))
+        self.chk_minimize_tray.setChecked(self._settings.value("minimize_tray", True, type=bool))
+        self.chk_notifications.setChecked(self._settings.value("notifications", True, type=bool))
+
+    def _on_browse_clicked(self) -> None:
+        """Abre a caixa de diálogo nativa do Windows/SO para escolher a pasta."""
+        current_path = self.input_download_path.text().strip()
+        if not current_path or not os.path.exists(current_path):
+            current_path = os.path.abspath("downloads")
+
+        selected_dir = QFileDialog.getExistingDirectory(
+            self,
+            "Selecionar Pasta para Downloads e Cursos",
+            current_path,
+            QFileDialog.ShowDirsOnly | QFileDialog.DontResolveSymlinks,
+        )
+
+        if selected_dir:
+            selected_dir = os.path.normpath(selected_dir)
+            self.input_download_path.setText(selected_dir)
+
+    def _on_save_clicked(self) -> None:
+        """Salva as alterações no registro, atualiza o gerenciador e avisa o usuário."""
+        new_path = self.input_download_path.text().strip()
+        if new_path:
+            os.makedirs(new_path, exist_ok=True)
+            self._settings.setValue("download_dir", new_path)
+            PRTDownloadManager.instance().set_download_folder(new_path)
+
+        self._settings.setValue("autostart", self.chk_autostart.isChecked())
+        self._settings.setValue("minimize_tray", self.chk_minimize_tray.isChecked())
+        self._settings.setValue("notifications", self.chk_notifications.isChecked())
+
+        # Pop-up de confirmação visual
+        QMessageBox.information(
+            self,
+            "PRT NEXUS",
+            "Configurações salvas com sucesso!"
+        )

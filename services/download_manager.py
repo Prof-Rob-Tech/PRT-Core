@@ -7,35 +7,43 @@ Module.....: Services
 Class......: PRTDownloadManager
 
 Description:
-    Centralized singleton manager for tracking download state
-    and simulating real-time download progress via QTimer.
+    Centralized singleton manager handling real yt-dlp workers,
+    download pause, resume, cancel, and clear operations with
+    completion signals for native notifications.
 
 Developer..: Prof Rob Tech
 ===========================================================
 """
 
-import random
-from typing import List, Optional
-from PySide6.QtCore import QObject, QTimer, Signal
+import os
+from typing import Dict, List, Optional
+from PySide6.QtCore import QObject, QSettings, Signal
+
+from services.yt_dlp_worker import YTDLWorker
 
 
 class PRTDownloadItem:
-    """Represents a single download task."""
+    """Representa uma tarefa de download."""
 
-    def __init__(self, download_id: str, name: str, size_str: str) -> None:
+    def __init__(self, download_id: str, url: str, name: str, size_str: str) -> None:
         self.id = download_id
+        self.url = url
         self.name = name
         self.size_str = size_str
         self.progress = 0
-        self.status = "Baixando"
-        self.speed = "0.0 MB/s"
+        self.status = "Iniciando..."
+        self.speed = "0.0 KB/s"
 
 
 class PRTDownloadManager(QObject):
-    """Singleton service for managing active downloads and simulation ticks."""
+    """Gerenciador central de downloads."""
 
     download_added = Signal(object)
     progress_updated = Signal(str, int, str, str)  # (id, progress, speed, status)
+    title_updated = Signal(str, str)               # (id, new_title)
+    size_updated = Signal(str, str)                # (id, new_size)
+    download_completed = Signal(str)               # (title)
+    cleared_signal = Signal()
 
     _instance: Optional["PRTDownloadManager"] = None
 
@@ -48,66 +56,111 @@ class PRTDownloadManager(QObject):
     def __init__(self) -> None:
         super().__init__()
         self.downloads: List[PRTDownloadItem] = []
+        self._workers: Dict[str, YTDLWorker] = {}
 
-        # Timer para atualizar a barra de progresso em tempo real
-        self._timer = QTimer(self)
-        self._timer.setInterval(700)  # Atualiza a cada 700ms
-        self._timer.timeout.connect(self._simulate_tick)
+        settings = QSettings("PRTLabs", "PRTNexus")
+        default_dir = os.path.abspath("downloads")
+        self._download_folder = settings.value("download_dir", default_dir)
+        os.makedirs(self._download_folder, exist_ok=True)
 
-        self._populate_initial_data()
-        self._timer.start()
+    def get_download_folder(self) -> str:
+        return self._download_folder
 
-    def _populate_initial_data(self) -> None:
-        """Carrega os downloads iniciais de demonstração."""
-        item1 = PRTDownloadItem("dl_1", "Curso_Python_Completo_Aula01.mp4", "1.2 GB")
-        item1.progress = 45
-        item1.status = "Baixando"
-        item1.speed = "6.4 MB/s"
-
-        item2 = PRTDownloadItem("dl_2", "Design_System_Figma.zip", "350 MB")
-        item2.progress = 100
-        item2.status = "Concluído"
-        item2.speed = "-"
-
-        item3 = PRTDownloadItem("dl_3", "Apostila_DevOps.pdf", "15 MB")
-        item3.progress = 12
-        item3.status = "Pausado"
-        item3.speed = "-"
-
-        self.downloads.extend([item1, item2, item3])
+    def set_download_folder(self, folder_path: str) -> None:
+        self._download_folder = folder_path
+        os.makedirs(self._download_folder, exist_ok=True)
 
     def add_download(self, url_or_name: str) -> PRTDownloadItem:
-        """Adiciona um novo download e dispara os sinais da interface."""
-        name = url_or_name.split("/")[-1] if "/" in url_or_name else url_or_name
-        if not name or len(name) < 3 or name.startswith("http"):
-            name = f"Curso_Download_{len(self.downloads) + 1}.mp4"
-
         download_id = f"dl_{len(self.downloads) + 1}"
-        size_mb = random.randint(200, 1800)
-        size_str = f"{size_mb} MB" if size_mb < 1000 else f"{round(size_mb / 1024, 1)} GB"
+        is_real_url = url_or_name.startswith("http://") or url_or_name.startswith("https://")
 
-        item = PRTDownloadItem(download_id, name, size_str)
-        item.progress = 0
-        item.status = "Baixando"
-        item.speed = "2.1 MB/s"
+        display_name = url_or_name.split("/")[-1] if "/" in url_or_name else url_or_name
+        if not display_name or is_real_url:
+            display_name = "Analisando URL..."
 
+        item = PRTDownloadItem(download_id, url_or_name, display_name, "Calculando...")
         self.downloads.append(item)
         self.download_added.emit(item)
+
+        if is_real_url:
+            self._start_worker(item)
+
         return item
 
-    def _simulate_tick(self) -> None:
-        """Simula a evolução do progresso de downloads ativos."""
+    def pause_download(self, download_id: str) -> None:
+        """Pausa um download ativo."""
+        if download_id in self._workers:
+            self._workers[download_id].pause()
+
+    def resume_download(self, download_id: str) -> None:
+        """Retoma um download pausado reutilizando o arquivo parcial."""
         for item in self.downloads:
-            if item.status == "Baixando":
-                item.progress += random.randint(2, 6)
-                speed_val = round(random.uniform(4.0, 9.8), 1)
-                item.speed = f"{speed_val} MB/s"
+            if item.id == download_id and item.status in ["Pausado", "Erro"]:
+                item.status = "Iniciando..."
+                self.progress_updated.emit(download_id, item.progress, "0.0 KB/s", "Iniciando...")
+                self._start_worker(item)
+                break
 
-                if item.progress >= 100:
+    def cancel_download(self, download_id: str) -> None:
+        """Cancela e remove um download da lista."""
+        if download_id in self._workers:
+            self._workers[download_id].cancel()
+
+        self.downloads = [item for item in self.downloads if item.id != download_id]
+        self.cleared_signal.emit()
+
+    def clear_completed(self) -> None:
+        """Limpa downloads concluídos ou cancelados."""
+        self.downloads = [
+            item for item in self.downloads
+            if item.status not in ["Concluído", "Concluido", "Cancelado"] and not item.status.startswith("Erro")
+        ]
+        self.cleared_signal.emit()
+
+    def _start_worker(self, item: PRTDownloadItem) -> None:
+        worker = YTDLWorker(item.id, item.url, output_dir=self.get_download_folder())
+        worker.progress_signal.connect(self._on_worker_progress)
+        worker.title_signal.connect(self._on_worker_title)
+        worker.size_signal.connect(self._on_worker_size)
+        worker.finished_signal.connect(self._on_worker_finished)
+
+        self._workers[item.id] = worker
+        worker.start()
+
+    def _on_worker_progress(self, download_id: str, progress: int, speed: str, status: str) -> None:
+        for item in self.downloads:
+            if item.id == download_id:
+                item.progress = progress
+                item.speed = speed
+                item.status = status
+                self.progress_updated.emit(download_id, progress, speed, status)
+                break
+
+    def _on_worker_title(self, download_id: str, title: str) -> None:
+        for item in self.downloads:
+            if item.id == download_id:
+                item.name = title
+                self.title_updated.emit(download_id, item.name)
+                break
+
+    def _on_worker_size(self, download_id: str, size_str: str) -> None:
+        for item in self.downloads:
+            if item.id == download_id:
+                if item.size_str != size_str:
+                    item.size_str = size_str
+                    self.size_updated.emit(download_id, size_str)
+                break
+
+    def _on_worker_finished(self, download_id: str, status: str) -> None:
+        for item in self.downloads:
+            if item.id == download_id:
+                item.status = status
+                item.speed = "-"
+                if status == "Concluído":
                     item.progress = 100
-                    item.status = "Concluído"
-                    item.speed = "-"
+                    self.download_completed.emit(item.name)
+                self.progress_updated.emit(download_id, item.progress, "-", status)
+                break
 
-                self.progress_updated.emit(
-                    item.id, item.progress, item.speed, item.status
-                )
+        if download_id in self._workers:
+            del self._workers[download_id]

@@ -57,8 +57,9 @@ class PRTDownloadManager(QObject):
         self.downloads: List[PRTDownloadItem] = []
         self._workers: Dict[str, YTDLWorker] = {}
 
-        self._download_folder = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "downloads")
+        # Caminho seguro do usuário (evita erro de permissão no Program Files)
+        self._download_folder = os.path.join(
+            os.path.expanduser("~"), "Downloads", "PRT NEXUS"
         )
         os.makedirs(self._download_folder, exist_ok=True)
 

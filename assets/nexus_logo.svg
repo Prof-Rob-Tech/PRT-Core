@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="neonG1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00F2FE" />
+      <stop offset="100%" stop-color="#0072FF" />
+    </linearGradient>
+    <filter id="intenseGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="12" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+  </defs>
+
+  <g filter="url(#intenseGlow)" transform="translate(8, 8)">
+    <!-- Lâminas do Nexus X -->
+    <path d="M 115 105 L 70 40 C 60 25, 40 35, 45 52 L 62 107 C 67 122, 87 127, 100 117 Z" fill="url(#neonG1)"/>
+    <path d="M 135 105 L 185 50 C 197 36, 212 52, 200 67 L 152 117 C 142 127, 125 120, 127 107 Z" fill="url(#neonG1)"/>
+    <path d="M 112 135 L 57 187 C 45 200, 30 182, 42 167 L 90 117 C 100 107, 117 115, 115 127 Z" fill="url(#neonG1)"/>
+    <path d="M 135 135 L 180 200 C 190 215, 210 205, 205 187 L 187 132 C 182 117, 162 112, 150 122 Z" fill="url(#neonG1)"/>
+    
+    <!-- Núcleo Luminoso Central -->
+    <polygon points="128,110 142,128 128,146 114,128" fill="#FFFFFF" opacity="0.95"/>
+  </g>
+</svg>

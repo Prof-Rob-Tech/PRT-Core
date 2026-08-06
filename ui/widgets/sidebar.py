@@ -1,183 +1,157 @@
 """
 ===========================================================
-PRT Labs
-
-Project....: PRT Core
-Module.....: Widgets
-Class......: PRTSidebar
+PRT Labs - UI Widgets
+Class: PRTSidebar
 
 Description:
-    Left navigation panel used by PRT Labs applications.
-
-Developer..: Prof Rob Tech
+    Sidebar modular principal do PRT NEXUS. Unifica
+    navegação, conectores e rodapé da aplicação.
 ===========================================================
 """
 
-from typing import Optional
-from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QVBoxLayout, QWidget
-from ui.widgets.label import PRTLabel
-from ui.widgets.sidebar_button import PRTSidebarButton
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtSvgWidgets import QSvgWidget
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QScrollArea, QVBoxLayout, QWidget
+
+from ui.widgets.connector_item import ConnectorItem
+from ui.widgets.footer_card import SidebarFooterCard
+from ui.widgets.sidebar_item import SidebarNavItem
 
 
 class PRTSidebar(QWidget):
-    """Left navigation panel for PRT Labs applications."""
+    """Barra lateral modular e responsiva do PRT NEXUS."""
 
-    navigation_requested = Signal(str)
+    page_changed = Signal(str)
 
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
-        super().__init__(parent)
-
-        self._layout = QVBoxLayout(self)
-
+    def __init__(self) -> None:
+        super().__init__()
+        self.setFixedWidth(240)
+        self._nav_items: dict[str, SidebarNavItem] = {}
+        self.main_window = None
         self._build_ui()
 
+    def connect_main_window(self, main_window) -> None:
+        """Conecta os sinais da Sidebar com a Janela Principal."""
+        self.main_window = main_window
+        if hasattr(main_window, "_on_page_changed"):
+            self.page_changed.connect(main_window._on_page_changed)
+        elif hasattr(main_window, "on_page_changed"):
+            self.page_changed.connect(main_window.on_page_changed)
+
     def _build_ui(self) -> None:
-        """Build and style the sidebar interface."""
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 20, 16, 16)
+        layout.setSpacing(16)
 
-        self.setObjectName("PRTSidebar")
-        self.setFixedWidth(230)
+        # 1. CABEÇALHO COM LOGO SVG
+        header_layout = QHBoxLayout()
+        header_layout.setSpacing(10)
 
-        self.setStyleSheet(
-            """
-            QWidget#PRTSidebar {
-                background-color: #181818;
-                border-right: 1px solid #303030;
-            }
-            """
-        )
+        logo_widget = QSvgWidget("assets/nexus_logo.svg")
+        logo_widget.setFixedSize(28, 28)
 
-        self._layout.setContentsMargins(15, 20, 15, 20)
-        self._layout.setSpacing(10)
-        self._build_header()
-        self._build_navigation()
-        self._build_footer()
+        title_vbox = QVBoxLayout()
+        title_vbox.setSpacing(0)
 
-    def _build_header(self) -> None:
-        """Create the application name displayed at the top."""
+        lbl_title = QLabel("PRT NEXUS")
+        lbl_title.setStyleSheet("color: #FFFFFF; font-size: 15px; font-weight: bold;")
 
-        logo = PRTLabel("PRT NEXUS")
+        lbl_sub = QLabel("Content Management")
+        lbl_sub.setStyleSheet("color: #6C727F; font-size: 10px;")
 
-        logo.setStyleSheet(
-            """
-            QLabel {
-                color: #FFFFFF;
-                font-size: 20px;
-                font-weight: bold;
-            }
-            """
-        )
+        title_vbox.addWidget(lbl_title)
+        title_vbox.addWidget(lbl_sub)
 
-        self._layout.addWidget(logo)
-        self._layout.addSpacing(20)
+        header_layout.addWidget(logo_widget)
+        header_layout.addLayout(title_vbox)
+        header_layout.addStretch()
+        layout.addLayout(header_layout)
 
-    def _build_navigation(self) -> None:
-        """Create the initial navigation items."""
+        # 2. ÁREA ROLÁVEL DE CONTEÚDO
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("background: transparent;")
 
-        self.dashboard = PRTSidebarButton("Dashboard")
-        self.downloads = PRTSidebarButton("Downloads")
-        self.courses = PRTSidebarButton("Cursos")
-        self.settings = PRTSidebarButton("Configurações")
-        self.license = PRTSidebarButton("Licença")
+        container = QWidget()
+        c_layout = QVBoxLayout(container)
+        c_layout.setContentsMargins(0, 0, 0, 0)
+        c_layout.setSpacing(18)
 
-        self.dashboard.set_selected(True)
+        # Grupo: Menu Principal
+        nav_group = QVBoxLayout()
+        nav_group.setSpacing(4)
 
-        self._layout.addWidget(self.dashboard)
-        self._layout.addWidget(self.downloads)
-        self._layout.addWidget(self.courses)
-        self._layout.addWidget(self.settings)
-        self._layout.addWidget(self.license)
+        for key, text, badge, active in [
+            ("inicio", "🏠  Início", "", True),
+            ("navegador", "🌐  Navegador", "", False),
+            ("downloads", "📥  Downloads", "3", False),
+            ("biblioteca", "📁  Biblioteca", "", False),
+            ("favoritos", "⭐  Favoritos", "", False),
+            ("historico", "🕒  Histórico", "", False),
+        ]:
+            item = SidebarNavItem(key, text, badge_count=badge, active=active)
+            item.clicked.connect(self._on_item_clicked)
+            self._nav_items[key] = item
+            nav_group.addWidget(item)
 
-    def connect_main_window(self, window) -> None:
-        """Connect sidebar navigation buttons to PRTMainWindow methods."""
+        c_layout.addLayout(nav_group)
 
-        self.navigation_requested.connect(
-            lambda page_name: (
-                window.show_dashboard()
-                if page_name == "dashboard"
-                else None
-            )
-        )
+        # Grupo: Conectores
+        c_layout.addLayout(self._create_header("CONECTORES", show_plus=True))
+        conn_group = QVBoxLayout()
+        conn_group.setSpacing(2)
+        conn_group.addWidget(ConnectorItem("▶️", "YouTube", online=True))
+        conn_group.addWidget(ConnectorItem("🟢", "Kiwify", online=True))
+        conn_group.addWidget(ConnectorItem("🔥", "Hotmart", online=True))
+        conn_group.addWidget(ConnectorItem("🔷", "Vimeo", online=False))
+        conn_group.addWidget(ConnectorItem("🔺", "Google Drive", online=False))
+        conn_group.addWidget(ConnectorItem("🔴", "Mega", online=False))
+        c_layout.addLayout(conn_group)
 
-        self.dashboard.clicked.connect(
-            lambda: self._navigate(
-                self.dashboard,
-                window.show_dashboard,
-            )
-        )
+        # Grupo: Ferramentas
+        c_layout.addLayout(self._create_header("FERRAMENTAS"))
+        tool_group = QVBoxLayout()
+        tool_group.setSpacing(4)
+        for key, text in [
+            ("configuracoes", "⚙️  Configurações"),
+            ("licenca", "🛡️  Licença"),
+            ("atualizacoes", "🔄  Atualizações"),
+            ("plugins", "🧩  Plugins"),
+        ]:
+            item = SidebarNavItem(key, text)
+            item.clicked.connect(self._on_item_clicked)
+            self._nav_items[key] = item
+            tool_group.addWidget(item)
 
-        self.downloads.clicked.connect(
-            lambda: self._navigate(
-                self.downloads,
-                window.show_downloads,
-            )
-        )
+        c_layout.addLayout(tool_group)
+        c_layout.addStretch()
 
-        self.courses.clicked.connect(
-            lambda: self._navigate(
-                self.courses,
-                window.show_courses,
-            )
-        )
+        scroll.setWidget(container)
+        layout.addWidget(scroll)
 
-        self.settings.clicked.connect(
-            lambda: self._navigate(
-                self.settings,
-                window.show_settings,
-            )
-        )
+        # 3. RODAPÉ
+        layout.addWidget(SidebarFooterCard())
 
-        self.license.clicked.connect(
-            lambda: self._navigate(
-                self.license,
-                window.show_license,
-            )
-        )
+    def _create_header(self, title: str, show_plus: bool = False) -> QHBoxLayout:
+        lay = QHBoxLayout()
+        lay.setContentsMargins(4, 4, 4, 0)
 
-        self.set_selected_button(self.dashboard)
+        lbl = QLabel(title)
+        lbl.setStyleSheet("color: #525663; font-size: 11px; font-weight: bold; letter-spacing: 1px;")
+        lay.addWidget(lbl)
+        lay.addStretch()
 
-    def _navigate(self, button, destination) -> None:
+        if show_plus:
+            lbl_plus = QLabel("+")
+            lbl_plus.setCursor(Qt.PointingHandCursor)
+            lbl_plus.setStyleSheet("color: #525663; font-size: 14px; font-weight: bold;")
+            lay.addWidget(lbl_plus)
 
-        self.set_selected_button(button)
+        return lay
 
-        if callable(destination):
-            destination()
-            return
-
-        self.navigation_requested.emit(destination.value)
-
-    def set_selected_button(self, selected_button) -> None:
-
-        buttons = (
-            self.dashboard,
-            self.downloads,
-            self.courses,
-            self.settings,
-            self.license,
-        )
-
-        for button in buttons:
-            button.set_selected(button is selected_button)
-
-    def _build_footer(self) -> None:
-        """Create the version label at the bottom."""
-
-        self._layout.addStretch()
-
-        version = PRTLabel("v0.1 Alpha")
-
-        version.setStyleSheet(
-            """
-            QLabel {
-                color: #777777;
-                font-size: 11px;
-            }
-            """
-        )
-
-        self._layout.addWidget(version)
-
-    def add_widget(self, widget: QWidget) -> None:
-        """Add an external widget to the sidebar."""
-
-        self._layout.addWidget(widget)
+    def _on_item_clicked(self, selected_key: str) -> None:
+        for key, item in self._nav_items.items():
+            item.set_active(key == selected_key)
+        self.page_changed.emit(selected_key)

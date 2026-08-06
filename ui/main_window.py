@@ -1,25 +1,17 @@
 """
 ===========================================================
-PRT Labs
-
-Project....: PRT Core
-Module.....: UI
-Class......: PRTMainWindow
+PRT Labs - UI / Main Window
+Class: PRTMainWindow
 
 Description:
-    Main Application Window for PRT NEXUS with direct explicit module loading,
-    navigation handlers, system tray integration, and startup maximized mode.
-
-Developer..: Prof Rob Tech
+    Janela principal da aplicação PRT NEXUS integrando
+    a Sidebar, navegação entre páginas e suporte dinâmico
+    à bandeja do sistema (System Tray) respeitando as configurações.
 ===========================================================
 """
 
-import os
-import sys
-import traceback
-
-from PySide6.QtCore import QSettings, Qt
-from PySide6.QtGui import QAction, QCloseEvent
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -33,175 +25,170 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-# --- GARANTE QUE A RAIZ DO PROJETO ESTÁ NO PATH DO PYTHON ---
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.abspath(os.path.join(CURRENT_DIR, ".."))
-if PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, PROJECT_ROOT)
-
-
-# --- IMPORTAÇÃO DIRETA E TRANSPARENTE DAS PÁGINAS ---
-
-def _safe_import(module_path: str, class_name: str, fallback_title: str):
-    """Importa uma classe de página exibindo o erro exato no terminal caso falhe."""
-    try:
-        mod = __import__(module_path, fromlist=[class_name])
-        page_cls = getattr(mod, class_name)
-        print(f"✅ Módulo '{module_path}' carregado com sucesso.")
-        return page_cls
-    except Exception as e:
-        print(f"❌ [ERRO AO CARREGAR {fallback_title}] do arquivo '{module_path}':")
-        traceback.print_exc()
-        return None
-
-
-DashboardPage = _safe_import("ui.pages.dashboard_page", "DashboardPage", "Dashboard")
-DownloadsPage = _safe_import("ui.pages.downloads_page", "DownloadsPage", "Downloads")
-CoursesPage = _safe_import("ui.pages.courses_page", "CoursesPage", "Cursos")
-SettingsPage = _safe_import("ui.pages.settings_page", "SettingsPage", "Configurações")
-
-# Tenta carregar Licença se existir
-LicensePage = _safe_import("ui.pages.license_page", "LicensePage", "Licença")
+# Páginas reais do sistema
+from ui.pages.courses_page import CoursesPage
+from ui.pages.dashboard_page import DashboardPage
+from ui.pages.downloads_page import DownloadsPage
+from ui.pages.settings_page import SettingsPage
 
 
 class PRTMainWindow(QMainWindow):
-    """Janela Principal do PRT NEXUS."""
+    """Janela principal do PRT NEXUS com suporte dinâmico ao System Tray."""
 
     def __init__(self) -> None:
         super().__init__()
-        self.settings = QSettings("PRTLabs", "PRTNexus")
-        self.sidebar = None
-
         self.setWindowTitle("PRT NEXUS")
-        self.resize(1100, 700)
-        self.setMinimumSize(900, 600)
-        self.setStyleSheet("background-color: #0B0B0C;")
+        self.resize(1280, 800)
+        self.setStyleSheet("background-color: #0E0F12;")
 
-        self._build_ui()
-        self._setup_tray_icon()
+        # Valor padrão caso a página de configurações não especifique
+        self.minimize_to_tray = True
 
-        # Inicia maximizado em tela cheia
-        self.showMaximized()
+        # Layout Principal (Horizontal: Sidebar + Conteúdo)
+        main_widget = QWidget()
+        self.setCentralWidget(main_widget)
 
-    def _build_ui(self) -> None:
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
-
-        self.main_layout = QHBoxLayout(central_widget)
+        self.main_layout = QHBoxLayout(main_widget)
         self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.main_layout.setSpacing(0)
 
-        self.stacked_widget = QStackedWidget()
+        # Área Central (Navegação de Telas)
+        self.pages_stack = QStackedWidget()
+        self.pages_stack.setStyleSheet("background-color: #121318;")
+        self.main_layout.addWidget(self.pages_stack, stretch=1)
 
-        # Instancia as páginas da interface (com fallback visual caso haja erro no arquivo)
-        self.page_dashboard = DashboardPage() if DashboardPage else self._create_placeholder_page("Dashboard")
-        self.page_downloads = DownloadsPage() if DownloadsPage else self._create_placeholder_page("Downloads")
-        self.page_courses = CoursesPage() if CoursesPage else self._create_placeholder_page("Aulas / Cursos")
-        self.page_settings = SettingsPage() if SettingsPage else self._create_placeholder_page("Configurações")
-        self.page_license = LicensePage() if LicensePage else self._create_placeholder_page("Licença / Sobre")
+        self.sidebar = None
+        self.page_indices: dict[str, int] = {}
+        self.settings_page = None
 
-        self.stacked_widget.addWidget(self.page_dashboard)
-        self.stacked_widget.addWidget(self.page_downloads)
-        self.stacked_widget.addWidget(self.page_courses)
-        self.stacked_widget.addWidget(self.page_settings)
-        self.stacked_widget.addWidget(self.page_license)
+        # 1. Instancia as telas
+        self._init_pages()
 
-        self.main_layout.addWidget(self.stacked_widget, stretch=1)
+        # 2. Configura a Ícone na Bandeja do Windows (System Tray)
+        self._setup_system_tray()
 
-    def add_sidebar(self, sidebar_widget: QWidget) -> None:
-        """Adiciona o componente de Sidebar à janela principal."""
-        if self.sidebar is not None:
-            self.main_layout.removeWidget(self.sidebar)
-            self.sidebar.deleteLater()
+        # 3. Abre maximizada
+        self.showMaximized()
 
-        self.sidebar = sidebar_widget
-
-        if hasattr(self.sidebar, "navigation_requested"):
-            self.sidebar.navigation_requested.connect(self._navigate_to_page)
-
+    def add_sidebar(self, sidebar) -> None:
+        """Acopla a Sidebar injetada pela Application no lado esquerdo."""
+        self.sidebar = sidebar
         self.main_layout.insertWidget(0, self.sidebar)
 
-    # --- MÉTODOS DE NAVEGAÇÃO CHAMADOS PELA SIDEBAR ---
+    def _init_pages(self) -> None:
+        """Instancia e mapeia todas as telas reais e temporárias."""
+        self.settings_page = SettingsPage()
 
-    def show_dashboard(self) -> None:
-        self.stacked_widget.setCurrentWidget(self.page_dashboard)
+        pages_map: dict[str, QWidget] = {
+            "inicio": DashboardPage(),
+            "downloads": DownloadsPage(),
+            "biblioteca": CoursesPage(),
+            "configuracoes": self.settings_page,
+            "navegador": self._create_placeholder("🌐 Navegador Integrado", "Explore e capture mídias na web"),
+            "favoritos": self._create_placeholder("⭐ Favoritos", "Conteúdos salvos para acesso rápido"),
+            "historico": self._create_placeholder("🕒 Histórico", "Registro de capturas e downloads anteriores"),
+            "licenca": self._create_placeholder("🛡️ Licença e Conta", "Informações do plano e autenticação"),
+            "atualizacoes": self._create_placeholder("🔄 Atualizações", "Verificar novas versões do PRT NEXUS"),
+            "plugins": self._create_placeholder("🧩 Gerenciador de Plugins", "Extensões e conectores instalados"),
+        }
 
-    def show_downloads(self) -> None:
-        self.stacked_widget.setCurrentWidget(self.page_downloads)
+        for key, widget in pages_map.items():
+            index = self.pages_stack.addWidget(widget)
+            self.page_indices[key] = index
 
-    def show_courses(self) -> None:
-        self.stacked_widget.setCurrentWidget(self.page_courses)
-
-    def show_settings(self) -> None:
-        self.stacked_widget.setCurrentWidget(self.page_settings)
-
-    def show_license(self) -> None:
-        self.stacked_widget.setCurrentWidget(self.page_license)
-
-    def _navigate_to_page(self, page_index: int) -> None:
-        if 0 <= page_index < self.stacked_widget.count():
-            self.stacked_widget.setCurrentIndex(page_index)
-
-    def _create_placeholder_page(self, title: str) -> QWidget:
+    def _create_placeholder(self, title: str, description: str) -> QWidget:
+        """Cria um widget temporário para páginas em desenvolvimento."""
         page = QWidget()
-        layout = QVBoxLayout(page)
-        lbl = QLabel(f"📄 Página: {title}")
-        lbl.setStyleSheet("color: #FFFFFF; font-size: 16px; font-weight: bold;")
-        lbl.setAlignment(Qt.AlignCenter)
-        layout.addWidget(lbl)
+        vbox = QVBoxLayout(page)
+        vbox.setAlignment(Qt.AlignCenter)
+        vbox.setSpacing(8)
+
+        lbl_title = QLabel(title)
+        lbl_title.setStyleSheet("color: #FFFFFF; font-size: 22px; font-weight: bold;")
+
+        lbl_desc = QLabel(description)
+        lbl_desc.setStyleSheet("color: #71717A; font-size: 14px;")
+
+        vbox.addWidget(lbl_title, alignment=Qt.AlignCenter)
+        vbox.addWidget(lbl_desc, alignment=Qt.AlignCenter)
+
         return page
 
-    def _setup_tray_icon(self) -> None:
+    def _setup_system_tray(self) -> None:
+        """Cria e configura o ícone da bandeja do sistema."""
         self.tray_icon = QSystemTrayIcon(self)
-        default_icon = self.style().standardIcon(QStyle.SP_ComputerIcon)
-        self.tray_icon.setIcon(default_icon)
+        
+        icon = self.style().standardIcon(QStyle.SP_ComputerIcon)
+        self.tray_icon.setIcon(icon)
+        self.tray_icon.setToolTip("PRT NEXUS")
 
         tray_menu = QMenu()
-        action_show = QAction("Mostrar PRT NEXUS", self)
-        action_show.triggered.connect(self.showNormal)
+        
+        action_show = tray_menu.addAction("Abrir PRT NEXUS")
+        action_show.triggered.connect(self.restore_from_tray)
 
-        action_quit = QAction("Sair", self)
-        action_quit.triggered.connect(self._force_quit)
-
-        tray_menu.addAction(action_show)
         tray_menu.addSeparator()
-        tray_menu.addAction(action_quit)
+
+        action_quit = tray_menu.addAction("Sair do PRT NEXUS")
+        action_quit.triggered.connect(self.quit_application)
 
         self.tray_icon.setContextMenu(tray_menu)
         self.tray_icon.activated.connect(self._on_tray_icon_activated)
         self.tray_icon.show()
 
     def _on_tray_icon_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
+        """Trata cliques no ícone da bandeja."""
         if reason in (QSystemTrayIcon.Trigger, QSystemTrayIcon.DoubleClick):
             if self.isVisible():
                 self.hide()
             else:
-                self.showNormal()
-                self.activateWindow()
+                self.restore_from_tray()
 
-    def _force_quit(self) -> None:
-        if hasattr(self, "tray_icon") and self.tray_icon:
-            self.tray_icon.hide()
+    def restore_from_tray(self) -> None:
+        """Restaura a janela visível na tela."""
+        self.show()
+        self.showMaximized()
+        self.activateWindow()
+
+    def quit_application(self) -> None:
+        """Encerra a aplicação definitivamente."""
+        self.tray_icon.hide()
         QApplication.quit()
 
-    def closeEvent(self, event: QCloseEvent) -> None:
-        close_to_tray = self.settings.value("close_to_tray", True, type=bool)
+    def _is_minimize_to_tray_enabled(self) -> bool:
+        """Verifica dinamicamente na página de configurações se a opção está marcada."""
+        if self.settings_page:
+            # Tenta encontrar o checkbox da tela de configurações por atributos conhecidos
+            for attr in ("chk_tray", "chk_minimize_to_tray", "tray_checkbox"):
+                if hasattr(self.settings_page, attr):
+                    return getattr(self.settings_page, attr).isChecked()
+            
+            # Tenta via método de leitura se existir
+            if hasattr(self.settings_page, "get_minimize_to_tray"):
+                return self.settings_page.get_minimize_to_tray()
 
-        if close_to_tray and hasattr(self, "tray_icon") and self.tray_icon and self.tray_icon.isVisible():
+        return self.minimize_to_tray
+
+    def _on_page_changed(self, page_key: str) -> None:
+        """Muda a página visível com base na seleção da Sidebar."""
+        print(f"[PRT NEXUS] Navegando para: {page_key}")
+        if page_key in self.page_indices:
+            self.pages_stack.setCurrentIndex(self.page_indices[page_key])
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        """Intercepta o clique no botão fechar (X)."""
+        should_minimize = self._is_minimize_to_tray_enabled()
+
+        if should_minimize:
             event.ignore()
             self.hide()
             self.tray_icon.showMessage(
                 "PRT NEXUS",
                 "O aplicativo continua rodando em segundo plano.",
                 QSystemTrayIcon.Information,
-                2500,
+                2000,
             )
         else:
-            if hasattr(self, "tray_icon") and self.tray_icon:
-                self.tray_icon.hide()
+            self.tray_icon.hide()
             event.accept()
             QApplication.quit()
-
-
-# Alias para garantir compatibilidade
-MainWindow = PRTMainWindow

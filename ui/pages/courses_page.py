@@ -7,9 +7,12 @@ Module.....: UI / Pages
 Class......: CoursesPage
 
 Description:
-    Advanced Video Player for PRT NEXUS supporting custom speed controls,
-    global application-level keyboard shortcuts (F / ESC / Space),
-    position memory per video, and direct local course library playback.
+    Advanced Video Player for PRT NEXUS featuring:
+    - 1-click timeline & volume seeking (ClickableSlider)
+    - Dedicated frameless full-screen window with guaranteed rendering layout
+    - Global mouse tracking (movement anywhere on screen restores controls)
+    - Auto-hiding controls and mouse cursor after 3 seconds of inactivity
+    - Speed selection, keyboard shortcuts (F, ESC, Space), and playback memory
 
 Developer..: Prof Rob Tech
 ===========================================================
@@ -17,11 +20,12 @@ Developer..: Prof Rob Tech
 
 import json
 import os
-from PySide6.QtCore import Qt, QTime, QUrl, Signal
+from PySide6.QtCore import QEvent, QTimer, Qt, QTime, QUrl, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (
+    QApplication,
     QComboBox,
     QFileDialog,
     QFrame,
@@ -36,8 +40,24 @@ from PySide6.QtWidgets import (
 from services.download_manager import PRTDownloadManager
 
 
+class ClickableSlider(QSlider):
+    """QSlider personalizado que avança/retrocede imediatamente ao clicar em qualquer ponto."""
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton and self.maximum() > self.minimum():
+            click_x = event.position().toPoint().x()
+            total_width = self.width()
+            if total_width > 0:
+                ratio = click_x / total_width
+                val = int(self.minimum() + ratio * (self.maximum() - self.minimum()))
+                val = max(self.minimum(), min(self.maximum(), val))
+                self.setValue(val)
+                self.sliderMoved.emit(val)
+        super().mousePressEvent(event)
+
+
 class ClickableVideoWidget(QVideoWidget):
-    """QVideoWidget personalizado com suporte a duplo clique e teclas de escape/fullscreen."""
+    """QVideoWidget personalizado com suporte a cliques e atalhos."""
 
     double_clicked = Signal()
     escape_pressed = Signal()
@@ -45,6 +65,7 @@ class ClickableVideoWidget(QVideoWidget):
     def __init__(self, parent: QWidget = None) -> None:
         super().__init__(parent)
         self.setFocusPolicy(Qt.StrongFocus)
+        self.setMouseTracking(True)
 
     def mouseDoubleClickEvent(self, event) -> None:
         if event.button() == Qt.LeftButton:
@@ -63,6 +84,15 @@ class ClickableVideoWidget(QVideoWidget):
         super().keyPressEvent(event)
 
 
+class FullScreenWindow(QWidget):
+    """Janela de Tela Cheia dedicada com suporte a rastreamento de mouse."""
+
+    def __init__(self, parent: QWidget = None) -> None:
+        super().__init__(parent, Qt.Window | Qt.FramelessWindowHint)
+        self.setStyleSheet("background-color: #000000;")
+        self.setMouseTracking(True)
+
+
 class CoursesPage(QWidget):
     """Página do Player de Vídeo e Aulas do PRT NEXUS."""
 
@@ -70,11 +100,19 @@ class CoursesPage(QWidget):
         super().__init__()
         self._current_video_path = ""
         self._history_file = self._get_history_path()
+        self._is_fullscreen = False
+        self.fs_window = None
 
         self._build_ui()
         self._setup_player()
         self._setup_shortcuts()
+        self._setup_auto_hide_controls()
         self._load_history()
+
+        # Instala filtro de eventos global para detectar movimento de mouse em qualquer lugar
+        app = QApplication.instance()
+        if app:
+            app.installEventFilter(self)
 
     def _get_history_path(self) -> str:
         appdata = os.getenv("APPDATA") or os.path.expanduser("~")
@@ -103,12 +141,15 @@ class CoursesPage(QWidget):
             print(f"[Player Error] Não foi possível salvar histórico: {e}")
 
     def _build_ui(self) -> None:
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(10)
+        self.page_layout = QVBoxLayout(self)
+        self.page_layout.setContentsMargins(10, 10, 10, 10)
+        self.page_layout.setSpacing(10)
 
-        # Cabeçalho e Seleção de Vídeo
-        top_layout = QHBoxLayout()
+        # 1. Cabeçalho da Página
+        self.top_widget = QWidget()
+        top_layout = QHBoxLayout(self.top_widget)
+        top_layout.setContentsMargins(0, 0, 0, 0)
+
         self.lbl_title = QLabel("🎬 Aulas e Cursos Baixados")
         self.lbl_title.setStyleSheet("color: #FFFFFF; font-size: 16px; font-weight: bold;")
         top_layout.addWidget(self.lbl_title)
@@ -132,18 +173,18 @@ class CoursesPage(QWidget):
         btn_open.clicked.connect(self._open_file_dialog)
         top_layout.addWidget(btn_open)
 
-        layout.addLayout(top_layout)
+        self.page_layout.addWidget(self.top_widget)
 
-        # Tela de Vídeo Customizada
+        # 2. Tela de Vídeo
         self.video_widget = ClickableVideoWidget()
         self.video_widget.setStyleSheet("background-color: #000000; border-radius: 8px;")
         self.video_widget.double_clicked.connect(self._toggle_fullscreen)
         self.video_widget.escape_pressed.connect(self._exit_fullscreen)
-        layout.addWidget(self.video_widget, stretch=1)
+        self.page_layout.addWidget(self.video_widget, stretch=1)
 
-        # Barra de Controles
-        controls_card = QFrame()
-        controls_card.setStyleSheet(
+        # 3. Card de Controles
+        self.controls_card = QFrame()
+        self.controls_card.setStyleSheet(
             """
             QFrame {
                 background-color: #141416;
@@ -152,41 +193,44 @@ class CoursesPage(QWidget):
             }
             """
         )
-        controls_vlayout = QVBoxLayout(controls_card)
+
+        controls_vlayout = QVBoxLayout(self.controls_card)
         controls_vlayout.setContentsMargins(12, 10, 12, 10)
         controls_vlayout.setSpacing(8)
 
-        # 1. Slider de Progresso + Tempo
+        # Slider de Progresso Clicável + Tempo
         progress_layout = QHBoxLayout()
         self.lbl_time_current = QLabel("00:00")
-        self.lbl_time_current.setStyleSheet("color: #8E8E93; font-size: 11px;")
+        self.lbl_time_current.setStyleSheet("color: #8E8E93; font-size: 11px; border: none;")
 
-        self.slider_progress = QSlider(Qt.Horizontal)
+        self.slider_progress = ClickableSlider(Qt.Horizontal)
         self.slider_progress.setRange(0, 0)
+        self.slider_progress.setCursor(Qt.PointingHandCursor)
         self.slider_progress.setStyleSheet(
             """
             QSlider::groove:horizontal {
-                height: 4px;
+                height: 6px;
                 background: #26262B;
-                border-radius: 2px;
+                border-radius: 3px;
             }
             QSlider::sub-page:horizontal {
                 background: #007ACC;
-                border-radius: 2px;
+                border-radius: 3px;
             }
             QSlider::handle:horizontal {
                 background: #FFFFFF;
-                width: 12px;
+                width: 14px;
+                height: 14px;
                 margin-top: -4px;
                 margin-bottom: -4px;
-                border-radius: 6px;
+                border-radius: 7px;
             }
             """
         )
         self.slider_progress.sliderMoved.connect(self._set_position)
 
         self.lbl_time_total = QLabel("00:00")
-        self.lbl_time_total.setStyleSheet("color: #8E8E93; font-size: 11px;")
+        self.lbl_time_total.setStyleSheet("color: #8E8E93; font-size: 11px; border: none;")
 
         progress_layout.addWidget(self.lbl_time_current)
         progress_layout.addWidget(self.slider_progress)
@@ -194,7 +238,7 @@ class CoursesPage(QWidget):
 
         controls_vlayout.addLayout(progress_layout)
 
-        # 2. Botões de Ação (Play, Volume, Velocidade, Fullscreen)
+        # Botões de Ação
         action_layout = QHBoxLayout()
 
         self.btn_play = QPushButton("▶️ Play")
@@ -220,10 +264,11 @@ class CoursesPage(QWidget):
         lbl_vol_icon.setStyleSheet("border: none; font-size: 14px;")
         action_layout.addWidget(lbl_vol_icon)
 
-        self.slider_volume = QSlider(Qt.Horizontal)
+        self.slider_volume = ClickableSlider(Qt.Horizontal)
         self.slider_volume.setRange(0, 100)
         self.slider_volume.setValue(80)
         self.slider_volume.setFixedWidth(90)
+        self.slider_volume.setCursor(Qt.PointingHandCursor)
         self.slider_volume.setStyleSheet(self.slider_progress.styleSheet())
         self.slider_volume.valueChanged.connect(self._set_volume)
         action_layout.addWidget(self.slider_volume)
@@ -278,7 +323,7 @@ class CoursesPage(QWidget):
         action_layout.addWidget(btn_fullscreen)
 
         controls_vlayout.addLayout(action_layout)
-        layout.addWidget(controls_card)
+        self.page_layout.addWidget(self.controls_card)
 
     def _setup_player(self) -> None:
         self.player = QMediaPlayer(self)
@@ -290,21 +335,50 @@ class CoursesPage(QWidget):
         self.player.durationChanged.connect(self._on_duration_changed)
 
     def _setup_shortcuts(self) -> None:
-        """Configura atalhos globais no nível de aplicativo (Qt.ApplicationShortcut)."""
-        # Atalho 'F' para alternar Tela Cheia
+        """Configura atalhos globais de aplicativo."""
         self.shortcut_f = QShortcut(QKeySequence(Qt.Key_F), self)
         self.shortcut_f.setContext(Qt.ApplicationShortcut)
         self.shortcut_f.activated.connect(self._toggle_fullscreen)
 
-        # Atalho 'ESC' para sair da Tela Cheia
         self.shortcut_esc = QShortcut(QKeySequence(Qt.Key_Escape), self)
         self.shortcut_esc.setContext(Qt.ApplicationShortcut)
         self.shortcut_esc.activated.connect(self._exit_fullscreen)
 
-        # Atalho 'Espaço' para Play / Pause
         self.shortcut_space = QShortcut(QKeySequence(Qt.Key_Space), self)
         self.shortcut_space.setContext(Qt.ApplicationShortcut)
         self.shortcut_space.activated.connect(self._toggle_play)
+
+    def _setup_auto_hide_controls(self) -> None:
+        """Gerencia o auto-ocultamento dos controles em tela cheia."""
+        self._controls_timer = QTimer(self)
+        self._controls_timer.setInterval(3000)
+        self._controls_timer.timeout.connect(self._on_controls_timer_timeout)
+
+    def eventFilter(self, watched, event) -> bool:
+        """Captura qualquer movimento do mouse em tela cheia para mostrar os controles."""
+        if self._is_fullscreen and event.type() in (
+            QEvent.MouseMove,
+            QEvent.HoverMove,
+            QEvent.MouseButtonPress,
+            QEvent.MouseButtonRelease,
+        ):
+            self._show_controls_temporarily()
+        return super().eventFilter(watched, event)
+
+    def _show_controls_temporarily(self) -> None:
+        if not self.controls_card.isVisible():
+            self.controls_card.show()
+
+        if self._is_fullscreen:
+            self.video_widget.unsetCursor()
+            self._controls_timer.start(3000)
+        else:
+            self._controls_timer.stop()
+
+    def _on_controls_timer_timeout(self) -> None:
+        if self._is_fullscreen:
+            self.controls_card.hide()
+            self.video_widget.setCursor(Qt.BlankCursor)
 
     def load_video(self, file_path: str) -> None:
         if not os.path.exists(file_path):
@@ -361,17 +435,65 @@ class CoursesPage(QWidget):
         self.player.setPlaybackRate(rate)
 
     def _toggle_fullscreen(self) -> None:
-        if self.video_widget.isFullScreen():
+        if self._is_fullscreen:
             self._exit_fullscreen()
         else:
-            self.video_widget.setFullScreen(True)
+            self._enter_fullscreen()
+
+    def _enter_fullscreen(self) -> None:
+        if self._is_fullscreen:
+            return
+
+        self._is_fullscreen = True
+
+        # Remove os widgets da janela original
+        self.page_layout.removeWidget(self.video_widget)
+        self.page_layout.removeWidget(self.controls_card)
+
+        # Cria a janela de tela cheia sem bordas
+        self.fs_window = FullScreenWindow()
+        fs_layout = QVBoxLayout(self.fs_window)
+        fs_layout.setContentsMargins(0, 0, 0, 0)
+        fs_layout.setSpacing(0)
+
+        fs_layout.addWidget(self.video_widget, stretch=1)
+        fs_layout.addWidget(self.controls_card)
+
+        self.fs_window.showFullScreen()
+        self.video_widget.setFocus()
+        self._show_controls_temporarily()
 
     def _exit_fullscreen(self) -> None:
-        if self.video_widget.isFullScreen():
-            self.video_widget.setFullScreen(False)
+        if not self._is_fullscreen:
+            return
+
+        self._is_fullscreen = False
+
+        if self.fs_window:
+            self.fs_window.hide()
+
+        # Remove da janela de tela cheia
+        if self.video_widget.parentWidget():
+            self.video_widget.parentWidget().layout().removeWidget(self.video_widget)
+        if self.controls_card.parentWidget():
+            self.controls_card.parentWidget().layout().removeWidget(self.controls_card)
+
+        # Devolve para a janela do aplicativo
+        self.page_layout.addWidget(self.video_widget, stretch=1)
+        self.page_layout.addWidget(self.controls_card)
+
+        self.top_widget.show()
+        self.controls_card.show()
+        self.video_widget.unsetCursor()
+        self._controls_timer.stop()
+
+        if self.fs_window:
+            self.fs_window.deleteLater()
+            self.fs_window = None
 
     def _on_position_changed(self, position: int) -> None:
-        self.slider_progress.setValue(position)
+        if not self.slider_progress.isSliderDown():
+            self.slider_progress.setValue(position)
         self.lbl_time_current.setText(self._format_time(position))
 
         if position > 0 and position % 5000 < 500:
@@ -384,3 +506,6 @@ class CoursesPage(QWidget):
     def _format_time(self, ms: int) -> str:
         time = QTime(0, 0, 0).addMSecs(ms)
         return time.toString("hh:mm:ss") if ms >= 3600000 else time.toString("mm:ss")
+
+
+# === FIM DO ARQUIVO ===

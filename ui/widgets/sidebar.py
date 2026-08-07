@@ -1,157 +1,312 @@
 """
 ===========================================================
-PRT Labs - UI Widgets
+PRT Labs - UI / Widgets
 Class: PRTSidebar
 
 Description:
-    Sidebar modular principal do PRT NEXUS. Unifica
-    navegação, conectores e rodapé da aplicação.
+    Barra lateral de navegação do PRT NEXUS.
+    Gerencia botões de navegação, lista de conectores ativos,
+    ferramentas e emissão de sinais para troca de páginas.
 ===========================================================
 """
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtSvgWidgets import QSvgWidget
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
 
-from ui.widgets.connector_item import ConnectorItem
-from ui.widgets.footer_card import SidebarFooterCard
-from ui.widgets.sidebar_item import SidebarNavItem
 
+class PRTSidebar(QFrame):
+    """Sidebar de navegação principal do PRT NEXUS com suporte a Conectores."""
 
-class PRTSidebar(QWidget):
-    """Barra lateral modular e responsiva do PRT NEXUS."""
-
+    # Sinal emitido ao clicar em QUALQUER aba ou conector
     page_changed = Signal(str)
 
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
         self.setFixedWidth(240)
-        self._nav_items: dict[str, SidebarNavItem] = {}
+        self.setStyleSheet(
+            """
+            QFrame#Sidebar {
+                background-color: #0E0F12;
+                border-right: 1px solid #18181B;
+            }
+        """
+        )
+        self.setObjectName("Sidebar")
+
+        self.buttons_map: dict[str, QPushButton] = {}
         self.main_window = None
-        self._build_ui()
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 16, 12, 16)
+        layout.setSpacing(12)
+
+        # 1. Header / Logo
+        layout.addWidget(self._create_logo())
+
+        # Scroll Area para os itens
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet(
+            """
+            QScrollArea {
+                background-color: transparent;
+                border: none;
+            }
+            QScrollBar:vertical {
+                background: transparent;
+                width: 4px;
+            }
+            QScrollBar::handle:vertical {
+                background: #27272A;
+                border-radius: 2px;
+            }
+        """
+        )
+
+        scroll_content = QWidget()
+        scroll_layout = QVBoxLayout(scroll_content)
+        scroll_layout.setContentsMargins(0, 0, 0, 0)
+        scroll_layout.setSpacing(16)
+
+        # 2. Menu Principal
+        scroll_layout.addLayout(self._create_main_menu())
+
+        # 3. Seção de Conectores
+        scroll_layout.addLayout(self._create_connectors_menu())
+
+        # 4. Seção de Ferramentas
+        scroll_layout.addLayout(self._create_tools_menu())
+
+        scroll_layout.addStretch()
+        scroll.setWidget(scroll_content)
+        layout.addWidget(scroll, stretch=1)
+
+        # 5. Footer / Card do App
+        layout.addWidget(self._create_footer())
+
+        # Seleciona o item inicial por padrão
+        self._select_item("navegador")
 
     def connect_main_window(self, main_window) -> None:
-        """Conecta os sinais da Sidebar com a Janela Principal."""
+        """Conecta a Sidebar à janela principal e acopla seus sinais."""
         self.main_window = main_window
+
+        # Conecta o sinal page_changed ao manipulador da janela principal
         if hasattr(main_window, "_on_page_changed"):
-            self.page_changed.connect(main_window._on_page_changed)
+            try:
+                self.page_changed.connect(main_window._on_page_changed)
+            except Exception:
+                pass
         elif hasattr(main_window, "on_page_changed"):
-            self.page_changed.connect(main_window.on_page_changed)
+            try:
+                self.page_changed.connect(main_window.on_page_changed)
+            except Exception:
+                pass
 
-    def _build_ui(self) -> None:
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 20, 16, 16)
-        layout.setSpacing(16)
+        # Adiciona a sidebar no layout da main window se o método existir
+        if hasattr(main_window, "add_sidebar"):
+            try:
+                main_window.add_sidebar(self)
+            except Exception:
+                pass
 
-        # 1. CABEÇALHO COM LOGO SVG
-        header_layout = QHBoxLayout()
-        header_layout.setSpacing(10)
+    def _create_logo(self) -> QWidget:
+        """Cria o logo do PRT NEXUS no topo da barra."""
+        widget = QWidget()
+        h_box = QHBoxLayout(widget)
+        h_box.setContentsMargins(4, 0, 4, 8)
+        h_box.setSpacing(10)
 
-        logo_widget = QSvgWidget("assets/nexus_logo.svg")
-        logo_widget.setFixedSize(28, 28)
+        lbl_icon = QLabel("⚡")
+        lbl_icon.setStyleSheet("font-size: 22px;")
 
-        title_vbox = QVBoxLayout()
-        title_vbox.setSpacing(0)
+        v_box = QVBoxLayout()
+        v_box.setSpacing(0)
 
         lbl_title = QLabel("PRT NEXUS")
         lbl_title.setStyleSheet("color: #FFFFFF; font-size: 15px; font-weight: bold;")
 
         lbl_sub = QLabel("Content Management")
-        lbl_sub.setStyleSheet("color: #6C727F; font-size: 10px;")
+        lbl_sub.setStyleSheet("color: #71717A; font-size: 10px; font-weight: 500;")
 
-        title_vbox.addWidget(lbl_title)
-        title_vbox.addWidget(lbl_sub)
+        v_box.addWidget(lbl_title)
+        v_box.addWidget(lbl_sub)
 
-        header_layout.addWidget(logo_widget)
-        header_layout.addLayout(title_vbox)
-        header_layout.addStretch()
-        layout.addLayout(header_layout)
+        h_box.addWidget(lbl_icon)
+        h_box.addLayout(v_box)
+        h_box.addStretch()
 
-        # 2. ÁREA ROLÁVEL DE CONTEÚDO
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll.setStyleSheet("background: transparent;")
+        return widget
 
-        container = QWidget()
-        c_layout = QVBoxLayout(container)
-        c_layout.setContentsMargins(0, 0, 0, 0)
-        c_layout.setSpacing(18)
+    def _create_main_menu(self) -> QVBoxLayout:
+        """Cria os botões de navegação principal."""
+        menu = QVBoxLayout()
+        menu.setSpacing(4)
 
-        # Grupo: Menu Principal
-        nav_group = QVBoxLayout()
-        nav_group.setSpacing(4)
+        items = [
+            ("inicio", "🏠  Início"),
+            ("navegador", "🌐  Navegador"),
+            ("downloads", "📥  Downloads"),
+            ("biblioteca", "📁  Biblioteca"),
+            ("favoritos", "⭐  Favoritos"),
+            ("historico", "🕒  Histórico"),
+        ]
 
-        for key, text, badge, active in [
-            ("inicio", "🏠  Início", "", True),
-            ("navegador", "🌐  Navegador", "", False),
-            ("downloads", "📥  Downloads", "3", False),
-            ("biblioteca", "📁  Biblioteca", "", False),
-            ("favoritos", "⭐  Favoritos", "", False),
-            ("historico", "🕒  Histórico", "", False),
-        ]:
-            item = SidebarNavItem(key, text, badge_count=badge, active=active)
-            item.clicked.connect(self._on_item_clicked)
-            self._nav_items[key] = item
-            nav_group.addWidget(item)
+        for page_id, text in items:
+            btn = self._make_nav_button(page_id, text)
+            menu.addWidget(btn)
 
-        c_layout.addLayout(nav_group)
+        return menu
 
-        # Grupo: Conectores
-        c_layout.addLayout(self._create_header("CONECTORES", show_plus=True))
-        conn_group = QVBoxLayout()
-        conn_group.setSpacing(2)
-        conn_group.addWidget(ConnectorItem("▶️", "YouTube", online=True))
-        conn_group.addWidget(ConnectorItem("🟢", "Kiwify", online=True))
-        conn_group.addWidget(ConnectorItem("🔥", "Hotmart", online=True))
-        conn_group.addWidget(ConnectorItem("🔷", "Vimeo", online=False))
-        conn_group.addWidget(ConnectorItem("🔺", "Google Drive", online=False))
-        conn_group.addWidget(ConnectorItem("🔴", "Mega", online=False))
-        c_layout.addLayout(conn_group)
+    def _create_connectors_menu(self) -> QVBoxLayout:
+        """Cria a seção de Conectores (YouTube, Kiwify, Hotmart, Vimeo, etc.)."""
+        menu = QVBoxLayout()
+        menu.setSpacing(4)
 
-        # Grupo: Ferramentas
-        c_layout.addLayout(self._create_header("FERRAMENTAS"))
-        tool_group = QVBoxLayout()
-        tool_group.setSpacing(4)
-        for key, text in [
+        lbl_section = QLabel("CONECTORES")
+        lbl_section.setStyleSheet(
+            "color: #52525B; font-size: 11px; font-weight: bold; padding: 6px 8px 2px 8px;"
+        )
+        menu.addWidget(lbl_section)
+
+        connectors = [
+            ("youtube", "▶️  YouTube"),
+            ("kiwify", "🟢  Kiwify"),
+            ("hotmart", "🔥  Hotmart"),
+            ("vimeo", "🔹  Vimeo"),
+            ("google_drive", "🔺  Google Drive"),
+            ("mega", "🔴  Mega"),
+        ]
+
+        for conn_id, text in connectors:
+            btn = self._make_nav_button(conn_id, text)
+            menu.addWidget(btn)
+
+        return menu
+
+    def _create_tools_menu(self) -> QVBoxLayout:
+        """Cria a seção de Ferramentas e Configurações."""
+        menu = QVBoxLayout()
+        menu.setSpacing(4)
+
+        lbl_section = QLabel("FERRAMENTAS")
+        lbl_section.setStyleSheet(
+            "color: #52525B; font-size: 11px; font-weight: bold; padding: 6px 8px 2px 8px;"
+        )
+        menu.addWidget(lbl_section)
+
+        tools = [
             ("configuracoes", "⚙️  Configurações"),
-            ("licenca", "🛡️  Licença"),
+            ("licenca", "🔑  Licença"),
             ("atualizacoes", "🔄  Atualizações"),
             ("plugins", "🧩  Plugins"),
-        ]:
-            item = SidebarNavItem(key, text)
-            item.clicked.connect(self._on_item_clicked)
-            self._nav_items[key] = item
-            tool_group.addWidget(item)
+        ]
 
-        c_layout.addLayout(tool_group)
-        c_layout.addStretch()
+        for tool_id, text in tools:
+            btn = self._make_nav_button(tool_id, text)
+            menu.addWidget(btn)
 
-        scroll.setWidget(container)
-        layout.addWidget(scroll)
+        return menu
 
-        # 3. RODAPÉ
-        layout.addWidget(SidebarFooterCard())
+    def _make_nav_button(self, page_id: str, text: str) -> QPushButton:
+        """Cria um botão padronizado de navegação da Sidebar."""
+        btn = QPushButton(text)
+        btn.setCheckable(True)
+        btn.setCursor(Qt.PointingHandCursor)
+        btn.setFixedHeight(36)
+        btn.setStyleSheet(self._get_inactive_style())
 
-    def _create_header(self, title: str, show_plus: bool = False) -> QHBoxLayout:
-        lay = QHBoxLayout()
-        lay.setContentsMargins(4, 4, 4, 0)
+        btn.clicked.connect(lambda: self._on_item_clicked(page_id))
 
-        lbl = QLabel(title)
-        lbl.setStyleSheet("color: #525663; font-size: 11px; font-weight: bold; letter-spacing: 1px;")
-        lay.addWidget(lbl)
-        lay.addStretch()
+        self.buttons_map[page_id] = btn
+        return btn
 
-        if show_plus:
-            lbl_plus = QLabel("+")
-            lbl_plus.setCursor(Qt.PointingHandCursor)
-            lbl_plus.setStyleSheet("color: #525663; font-size: 14px; font-weight: bold;")
-            lay.addWidget(lbl_plus)
+    def _on_item_clicked(self, page_id: str) -> None:
+        """Trata o clique em qualquer botão da Sidebar."""
+        self._select_item(page_id)
+        print(f"[PRTSidebar] Navegando para a página: '{page_id}'")
+        self.page_changed.emit(page_id)
 
-        return lay
+    def _select_item(self, target_id: str) -> None:
+        """Atualiza visualmente o estado ativo/inativo dos botões."""
+        for page_id, btn in self.buttons_map.items():
+            if page_id == target_id:
+                btn.setChecked(True)
+                btn.setStyleSheet(self._get_active_style())
+            else:
+                btn.setChecked(False)
+                btn.setStyleSheet(self._get_inactive_style())
 
-    def _on_item_clicked(self, selected_key: str) -> None:
-        for key, item in self._nav_items.items():
-            item.set_active(key == selected_key)
-        self.page_changed.emit(selected_key)
+    def _get_active_style(self) -> str:
+        """Estilo CSS do botão ativo (selecionado)."""
+        return """
+            QPushButton {
+                background-color: #6366F1;
+                color: #FFFFFF;
+                border: none;
+                border-radius: 8px;
+                padding-left: 12px;
+                text-align: left;
+                font-weight: bold;
+                font-size: 13px;
+            }
+        """
+
+    def _get_inactive_style(self) -> str:
+        """Estilo CSS do botão inativo."""
+        return """
+            QPushButton {
+                background-color: transparent;
+                color: #A1A1AA;
+                border: none;
+                border-radius: 8px;
+                padding-left: 12px;
+                text-align: left;
+                font-weight: 500;
+                font-size: 13px;
+            }
+            QPushButton:hover {
+                background-color: #18181B;
+                color: #FFFFFF;
+            }
+        """
+
+    def _create_footer(self) -> QFrame:
+        """Cria o card informativo no rodapé da Sidebar."""
+        card = QFrame()
+        card.setStyleSheet(
+            """
+            QFrame {
+                background-color: #18181B;
+                border: 1px solid #27272A;
+                border-radius: 8px;
+            }
+        """
+        )
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(2)
+
+        lbl_brand = QLabel("❖ PRT Labs")
+        lbl_brand.setStyleSheet("color: #FFFFFF; font-size: 12px; font-weight: bold;")
+
+        lbl_ver = QLabel("PRT Nexus v0.1.0-alpha")
+        lbl_ver.setStyleSheet("color: #71717A; font-size: 10px;")
+
+        layout.addWidget(lbl_brand)
+        layout.addWidget(lbl_ver)
+
+        return card
+
+
+# Aliases e exportações
+Sidebar = PRTSidebar
+__all__ = ["PRTSidebar", "Sidebar"]

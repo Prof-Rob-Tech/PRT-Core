@@ -6,6 +6,7 @@ Class: ConnectorPage / PRTConnectorPage
 Description:
     Página genérica e reutilizável para todos os conectores
     (YouTube, TikTok, Kiwify, Hotmart, Vimeo, Drive, Mega, Universo).
+    Integrada ao DownloadManager para disparar downloads reais.
 ===========================================================
 """
 
@@ -15,6 +16,8 @@ from PySide6.QtWidgets import (
     QFrame, QLineEdit, QTableWidget, QTableWidgetItem, QHeaderView,
     QScrollArea
 )
+
+from core.download_manager import download_manager
 
 
 class ConnectorPage(QWidget):
@@ -147,6 +150,7 @@ class ConnectorPage(QWidget):
                 border-color: #6366F1;
             }
         """)
+        self.url_input.returnPressed.connect(self._on_analisar_url)
         input_layout.addWidget(self.url_input)
 
         btn_fetch = QPushButton("Analisar Mídia")
@@ -165,6 +169,7 @@ class ConnectorPage(QWidget):
                 background-color: #4F46E5;
             }
         """)
+        btn_fetch.clicked.connect(self._on_analisar_url)
         input_layout.addWidget(btn_fetch)
 
         capture_layout.addLayout(input_layout)
@@ -249,7 +254,6 @@ class ConnectorPage(QWidget):
 
         self.table.setRowCount(len(sample_data))
         for row, (item_title, qual, size) in enumerate(sample_data):
-            # Define altura confortável de 42px para cada linha
             self.table.setRowHeight(row, 42)
 
             t_item = QTableWidgetItem(f"  {item_title}")
@@ -263,7 +267,7 @@ class ConnectorPage(QWidget):
             self.table.setItem(row, 1, q_item)
             self.table.setItem(row, 2, s_item)
 
-            # Botão de Ação Ajustado
+            # Botão de Ação Ajustado com Sinal
             btn_action = QPushButton("⬇️ Baixar")
             btn_action.setCursor(Qt.PointingHandCursor)
             btn_action.setFixedHeight(28)
@@ -281,6 +285,7 @@ class ConnectorPage(QWidget):
                     background-color: #4F46E5;
                 }
             """)
+            btn_action.clicked.connect(lambda checked=False, t=item_title: self._on_download_row(t))
 
             cell_widget = QWidget()
             cell_layout = QHBoxLayout(cell_widget)
@@ -298,6 +303,23 @@ class ConnectorPage(QWidget):
 
         scroll.setWidget(container)
         main_layout.addWidget(scroll)
+
+    def _on_analisar_url(self) -> None:
+        url = self.url_input.text().strip()
+        if url:
+            download_manager.add_download(
+                url=url,
+                title=f"Mídia do {self.display_name}",
+                platform=self.platform_key
+            )
+            self.url_input.clear()
+
+    def _on_download_row(self, item_title: str) -> None:
+        download_manager.add_download(
+            url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            title=item_title,
+            platform=self.platform_key
+        )
 
     def on_show(self) -> None:
         pass

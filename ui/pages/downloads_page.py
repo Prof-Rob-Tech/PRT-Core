@@ -1,367 +1,259 @@
 """
 ===========================================================
-PRT Labs
-
-Project....: PRT Core
-Module.....: UI / Pages
-Class......: DownloadsPage
+PRT Labs - UI / Pages
+Class: DownloadsPage / PRTDownloadsPage
 
 Description:
-    Downloads Page for PRT NEXUS featuring Auto-Clipboard URL detection,
-    aligned table cells, focus outline removal, and live progress tracking.
-
-Developer..: Prof Rob Tech
+    Gerenciador visual de Downloads com progresso em tempo real
+    conectado ao DownloadManager (QThread Signals).
 ===========================================================
 """
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Slot
 from PySide6.QtWidgets import (
-    QApplication,
-    QComboBox,
-    QHBoxLayout,
-    QHeaderView,
-    QLabel,
-    QLineEdit,
-    QProgressBar,
-    QPushButton,
-    QTableWidget,
-    QTableWidgetItem,
-    QVBoxLayout,
-    QWidget,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QFrame, QProgressBar, QScrollArea
 )
-from services.download_manager import PRTDownloadItem, PRTDownloadManager
+
+try:
+    from ui.pages.base_page import BasePage
+except Exception:
+    class BasePage(QWidget):
+        pass
+
+from core.download_manager import download_manager, TaskStatus
+from database.db_manager import db_manager
 
 
-class DownloadsPage(QWidget):
-    """Página do Gerenciador de Downloads."""
+class DownloadsPage(BasePage):
+    """Página de Gerenciamento e Progresso dos Downloads."""
 
-    def __init__(self) -> None:
-        super().__init__()
-        self._last_pasted_url = ""
-        self._build_ui()
+    def __init__(self, parent=None, *args, **kwargs) -> None:
+        try:
+            super().__init__()
+        except TypeError:
+            try:
+                super().__init__(parent)
+            except Exception:
+                QWidget.__init__(self)
+
+        if parent is not None and isinstance(parent, QWidget):
+            try:
+                self.setParent(parent)
+            except Exception:
+                pass
+
+        self.title = "Downloads"
+        self.subtitle = "Gerenciador de Mídias em Fila"
+        self.icon = "⬇️"
+        self.page_id = "downloads"
+
+        self.cards: dict = {}
+
+        self.setStyleSheet("""
+            QWidget {
+                background-color: #09090B;
+                color: #FFFFFF;
+                font-family: 'Segoe UI', sans-serif;
+            }
+        """)
+
+        self._setup_ui()
         self._connect_signals()
-        self._reload_table()
 
-    def showEvent(self, event) -> None:
-        """Sempre que a aba abre, verifica a área de transferência do Windows para colar a URL."""
-        super().showEvent(event)
-        self._check_and_auto_paste_clipboard()
+    def _setup_ui(self) -> None:
+        main_layout = self.layout()
+        if main_layout is None:
+            main_layout = QVBoxLayout(self)
 
-    def _check_and_auto_paste_clipboard(self) -> None:
-        clipboard = QApplication.clipboard()
-        text = clipboard.text().strip()
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
 
-        if text.startswith("http://") or text.startswith("https://"):
-            if not self.txt_url.text() and text != self._last_pasted_url:
-                self.txt_url.setText(text)
-                self.txt_url.selectAll()
-                self._last_pasted_url = text
-                print(f"📋 [PRT NEXUS] Link colado automaticamente: {text}")
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("""
+            QScrollArea { border: none; background-color: transparent; }
+            QScrollBar:vertical { background: #09090B; width: 8px; margin: 0px; }
+            QScrollBar::handle:vertical { background: #27272A; min-height: 20px; border-radius: 4px; }
+            QScrollBar::handle:vertical:hover { background: #3F3F46; }
+        """)
 
-    def _build_ui(self) -> None:
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(25, 25, 25, 25)
-        layout.setSpacing(15)
+        container = QWidget()
+        container.setStyleSheet("background-color: transparent;")
+        self.cards_layout = QVBoxLayout(container)
+        self.cards_layout.setContentsMargins(24, 24, 24, 24)
+        self.cards_layout.setSpacing(16)
 
-        # 1. Título
-        lbl_title = QLabel("Gerenciador de Downloads")
-        lbl_title.setStyleSheet("color: #FFFFFF; font-size: 20px; font-weight: bold; border: none; background: transparent;")
-        layout.addWidget(lbl_title)
+        # 1. Header
+        header_box = QVBoxLayout()
+        lbl_title = QLabel("⬇️ Fila de Downloads")
+        lbl_title.setStyleSheet("font-size: 24px; font-weight: bold; color: #FFFFFF; border: none;")
+        lbl_subtitle = QLabel("Acompanhe a extração e o download de conteúdos em tempo real.")
+        lbl_subtitle.setStyleSheet("font-size: 13px; color: #71717A; border: none;")
+        header_box.addWidget(lbl_title)
+        header_box.addWidget(lbl_subtitle)
 
-        # 2. Barra Superior (Input + Combo + Botão Baixar)
-        top_bar_layout = QHBoxLayout()
-        top_bar_layout.setSpacing(10)
+        self.cards_layout.addLayout(header_box)
 
-        self.txt_url = QLineEdit()
-        self.txt_url.setPlaceholderText("Cole o link do vídeo ou aula aqui (YouTube, etc)...")
-        self.txt_url.setStyleSheet(
-            """
-            QLineEdit {
-                background-color: #141416;
-                border: 1px solid #26262B;
-                border-radius: 6px;
-                padding: 8px 12px;
-                color: #FFFFFF;
-                font-size: 13px;
+        # 2. Estado Vazio Inicial
+        self.empty_card = QFrame()
+        self.empty_card.setStyleSheet("""
+            QFrame {
+                background-color: #18181B;
+                border: 1px solid #27272A;
+                border-radius: 12px;
             }
-            QLineEdit:focus {
-                border: 1px solid #007ACC;
-            }
-            """
-        )
-        top_bar_layout.addWidget(self.txt_url, stretch=1)
+            QLabel { border: none; background: transparent; }
+        """)
+        empty_layout = QVBoxLayout(self.empty_card)
+        empty_layout.setContentsMargins(40, 50, 40, 50)
+        empty_layout.setAlignment(Qt.AlignCenter)
 
-        self.cbo_quality = QComboBox()
-        self.cbo_quality.addItems(["Melhor (1080p+)", "Alta (720p)", "Médio (480p)", "Apenas Áudio (MP3)"])
-        self.cbo_quality.setStyleSheet(
-            """
-            QComboBox {
-                background-color: #141416;
-                border: 1px solid #26262B;
-                border-radius: 6px;
-                padding: 8px 12px;
-                color: #FFFFFF;
-                font-size: 13px;
-            }
-            """
-        )
-        top_bar_layout.addWidget(self.cbo_quality)
+        lbl_icon = QLabel("📥")
+        lbl_icon.setStyleSheet("font-size: 40px;")
+        lbl_icon.setAlignment(Qt.AlignCenter)
 
-        self.btn_download = QPushButton("📥 Baixar")
-        self.btn_download.setCursor(Qt.PointingHandCursor)
-        self.btn_download.setStyleSheet(
-            """
-            QPushButton {
-                background-color: #007ACC;
-                border: none;
-                border-radius: 6px;
-                padding: 9px 20px;
-                color: #FFFFFF;
-                font-size: 13px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #0098FF;
-            }
-            QPushButton:pressed {
-                background-color: #005999;
-            }
-            """
-        )
-        top_bar_layout.addWidget(self.btn_download)
+        lbl_empty_t = QLabel("Nenhum download ativo no momento")
+        lbl_empty_t.setStyleSheet("font-size: 16px; font-weight: bold; color: #FFFFFF; margin-top: 8px;")
+        lbl_empty_t.setAlignment(Qt.AlignCenter)
 
-        layout.addLayout(top_bar_layout)
+        lbl_empty_d = QLabel("Utilize o Navegador ou os Conectores laterais para adicionar links à fila.")
+        lbl_empty_d.setStyleSheet("font-size: 13px; color: #71717A; margin-top: 4px;")
+        lbl_empty_d.setAlignment(Qt.AlignCenter)
 
-        # 3. Barra de Ações Rápidas
-        actions_bar_layout = QHBoxLayout()
-        actions_bar_layout.setSpacing(10)
+        empty_layout.addWidget(lbl_icon)
+        empty_layout.addWidget(lbl_empty_t)
+        empty_layout.addWidget(lbl_empty_d)
 
-        self.btn_pause_all = QPushButton("⏸️ Pausar Todos")
-        self.btn_pause_all.setStyleSheet("background-color: #141416; border: 1px solid #26262B; color: #FFF; padding: 6px 12px; border-radius: 4px;")
-        self.btn_pause_all.setCursor(Qt.PointingHandCursor)
+        self.cards_layout.addWidget(self.empty_card)
+        self.cards_layout.addStretch()
 
-        self.btn_resume_all = QPushButton("▶️ Retomar Todos")
-        self.btn_resume_all.setStyleSheet("background-color: #141416; border: 1px solid #26262B; color: #FFF; padding: 6px 12px; border-radius: 4px;")
-        self.btn_resume_all.setCursor(Qt.PointingHandCursor)
-
-        self.btn_clear_completed = QPushButton("🧹 Limpar Concluídos")
-        self.btn_clear_completed.setStyleSheet("background-color: #141416; border: 1px solid #26262B; color: #FFF; padding: 6px 12px; border-radius: 4px;")
-        self.btn_clear_completed.setCursor(Qt.PointingHandCursor)
-
-        actions_bar_layout.addWidget(self.btn_pause_all)
-        actions_bar_layout.addWidget(self.btn_resume_all)
-        actions_bar_layout.addStretch()
-        actions_bar_layout.addWidget(self.btn_clear_completed)
-
-        layout.addLayout(actions_bar_layout)
-
-        # 4. Tabela de Downloads
-        self.table = QTableWidget()
-        self.table.setColumnCount(7)
-        self.table.setFocusPolicy(Qt.NoFocus)  # Remove caixas/bordas de foco ao clicar
-        self.table.setSelectionMode(QTableWidget.NoSelection)  # Evita destaques indesejados nas células
-
-        self.table.setHorizontalHeaderLabels([
-            "Título / Conteúdo", "Qualidade", "Tamanho", "Progresso", "Velocidade", "Status", "Ações"
-        ])
-
-        # Dimensionamento e Alinhamento das Colunas
-        header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.Stretch)
-        header.setSectionResizeMode(1, QHeaderView.Fixed)
-        header.setSectionResizeMode(2, QHeaderView.Fixed)
-        header.setSectionResizeMode(3, QHeaderView.Fixed)
-        header.setSectionResizeMode(4, QHeaderView.Fixed)
-        header.setSectionResizeMode(5, QHeaderView.Fixed)
-        header.setSectionResizeMode(6, QHeaderView.Fixed)
-
-        self.table.setColumnWidth(1, 140)
-        self.table.setColumnWidth(2, 100)
-        self.table.setColumnWidth(3, 140)
-        self.table.setColumnWidth(4, 100)
-        self.table.setColumnWidth(5, 100)
-        self.table.setColumnWidth(6, 60)
-
-        self.table.verticalHeader().setVisible(False)
-        self.table.setStyleSheet(
-            """
-            QTableWidget {
-                background-color: #141416;
-                border: 1px solid #26262B;
-                border-radius: 8px;
-                gridline-color: #1F1F23;
-                color: #FFFFFF;
-                outline: none;
-            }
-            QTableWidget::item {
-                padding: 4px 8px;
-                border: none;
-            }
-            QTableWidget::item:selected {
-                background-color: transparent;
-                color: #FFFFFF;
-            }
-            QTableWidget::item:focus {
-                background-color: transparent;
-                border: none;
-                outline: none;
-            }
-            QHeaderView::section {
-                background-color: #0B0B0C;
-                color: #8E8E93;
-                padding: 8px;
-                border: none;
-                font-size: 12px;
-                font-weight: bold;
-            }
-            """
-        )
-        layout.addWidget(self.table)
+        scroll.setWidget(container)
+        main_layout.addWidget(scroll)
 
     def _connect_signals(self) -> None:
-        mgr = PRTDownloadManager.instance()
+        """Conecta o DownloadManager com a UI."""
+        download_manager.task_added.connect(self._on_task_added)
+        download_manager.task_updated.connect(self._on_task_updated)
+        download_manager.task_completed.connect(self._on_task_completed)
+        download_manager.task_failed.connect(self._on_task_failed)
 
-        self.btn_download.clicked.connect(self._on_add_clicked)
-        self.txt_url.returnPressed.connect(self._on_add_clicked)
+    @Slot(object)
+    def _on_task_added(self, task) -> None:
+        self.empty_card.setVisible(False)
 
-        self.btn_pause_all.clicked.connect(mgr.pause_all)
-        self.btn_resume_all.clicked.connect(mgr.resume_all)
-        self.btn_clear_completed.clicked.connect(mgr.clear_completed)
+        card = QFrame()
+        card.setObjectName(f"card_{task.task_id}")
+        card.setStyleSheet("""
+            QFrame {
+                background-color: #18181B;
+                border: 1px solid #27272A;
+                border-radius: 10px;
+            }
+            QLabel { border: none; background: transparent; }
+        """)
 
-        mgr.download_added.connect(self._on_download_added)
-        mgr.download_removed.connect(self._reload_table)
-        mgr.download_cleared.connect(self._reload_table)
-        if hasattr(mgr, "cleared_signal"):
-            mgr.cleared_signal.connect(self._reload_table)
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(16, 14, 16, 14)
+        card_layout.setSpacing(8)
 
-        mgr.progress_updated.connect(self._on_progress_updated)
-        mgr.title_updated.connect(self._on_title_updated)
-        mgr.status_updated.connect(self._on_status_updated)
+        # Topo Card: Título + Status
+        top_layout = QHBoxLayout()
+        lbl_title = QLabel(task.title)
+        lbl_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #E4E4E7;")
 
-    def _on_add_clicked(self) -> None:
-        url = self.txt_url.text().strip()
-        if not url:
-            return
+        lbl_status = QLabel(task.status.value)
+        lbl_status.setObjectName("lbl_status")
+        lbl_status.setStyleSheet("font-size: 12px; font-weight: 600; color: #6366F1;")
 
-        quality_key = self.cbo_quality.currentText()
-        mgr = PRTDownloadManager.instance()
-        if hasattr(mgr, "add_download"):
-            mgr.add_download(url, quality=quality_key)
-        else:
-            mgr.add_item(url, quality_key)
-            mgr.start_download(url, quality_key)
+        top_layout.addWidget(lbl_title)
+        top_layout.addStretch()
+        top_layout.addWidget(lbl_status)
+        card_layout.addLayout(top_layout)
 
-        self.txt_url.clear()
-        self._last_pasted_url = url
-        self._reload_table()
+        # Barra de Progresso
+        pbar = QProgressBar()
+        pbar.setObjectName("pbar")
+        pbar.setValue(task.progress)
+        pbar.setFixedHeight(8)
+        pbar.setTextVisible(False)
+        pbar.setStyleSheet("""
+            QProgressBar {
+                background-color: #09090B;
+                border-radius: 4px;
+                border: none;
+            }
+            QProgressBar::chunk {
+                background-color: #6366F1;
+                border-radius: 4px;
+            }
+        """)
+        card_layout.addWidget(pbar)
 
-    def _on_download_added(self, item: PRTDownloadItem) -> None:
-        self._reload_table()
+        # Rodapé Card
+        bot_layout = QHBoxLayout()
+        lbl_info = QLabel(f"Plataforma: {task.platform.capitalize()} | Speed: {task.speed} | ETA: {task.eta}")
+        lbl_info.setObjectName("lbl_info")
+        lbl_info.setStyleSheet("font-size: 11px; color: #71717A;")
 
-    def _on_title_updated(self, url: str, title: str) -> None:
-        self._update_row_for_url(url, col=0, text=title)
+        lbl_pct = QLabel(f"{task.progress}%")
+        lbl_pct.setObjectName("lbl_pct")
+        lbl_pct.setStyleSheet("font-size: 12px; font-weight: bold; color: #FFFFFF;")
 
-    def _on_status_updated(self, url: str, status: str) -> None:
-        self._update_row_for_url(url, col=5, text=status)
+        bot_layout.addWidget(lbl_info)
+        bot_layout.addStretch()
+        bot_layout.addWidget(lbl_pct)
+        card_layout.addLayout(bot_layout)
 
-    def _on_progress_updated(self, url: str, title: str, speed: str, size: str, percentage: float, status: str) -> None:
-        row = self._find_row_by_url(url)
-        if row != -1:
-            pbar = self.table.cellWidget(row, 3)
-            if isinstance(pbar, QProgressBar):
-                pbar.setValue(int(percentage))
+        self.cards[task.task_id] = card
+        self.cards_layout.insertWidget(self.cards_layout.count() - 1, card)
 
-            item_size = self.table.item(row, 2)
-            if item_size and size:
-                item_size.setText(size)
+    @Slot(object)
+    def _on_task_updated(self, task) -> None:
+        if task.task_id in self.cards:
+            card = self.cards[task.task_id]
+            pbar = card.findChild(QProgressBar, "pbar")
+            lbl_status = card.findChild(QLabel, "lbl_status")
+            lbl_info = card.findChild(QLabel, "lbl_info")
+            lbl_pct = card.findChild(QLabel, "lbl_pct")
 
-            item_speed = self.table.item(row, 4)
-            if item_speed:
-                item_speed.setText(speed)
+            if pbar: pbar.setValue(task.progress)
+            if lbl_pct: lbl_pct.setText(f"{task.progress}%")
+            if lbl_status: lbl_status.setText(task.status.value)
+            if lbl_info:
+                lbl_info.setText(f"Plataforma: {task.platform.capitalize()} | Speed: {task.speed} | ETA: {task.eta}")
 
-            item_status = self.table.item(row, 5)
-            if item_status:
-                item_status.setText(status)
+    @Slot(object)
+    def _on_task_completed(self, task) -> None:
+        self._on_task_updated(task)
+        if task.task_id in self.cards:
+            card = self.cards[task.task_id]
+            lbl_status = card.findChild(QLabel, "lbl_status")
+            if lbl_status:
+                lbl_status.setText("✅ Concluído")
+                lbl_status.setStyleSheet("font-size: 12px; font-weight: 600; color: #10B981;")
 
-    def _reload_table(self) -> None:
-        mgr = PRTDownloadManager.instance()
-        items = mgr.downloads
+        db_manager.add_download(
+            task_id=task.task_id,
+            title=task.title,
+            url=task.url,
+            platform=task.platform,
+            file_path=task.save_path,
+            status="Concluído"
+        )
+        db_manager.add_history(title=task.title, url=task.url, platform=task.platform)
 
-        self.table.setRowCount(0)
-        for row_idx, item in enumerate(items):
-            self.table.insertRow(row_idx)
+    @Slot(object, str)
+    def _on_task_failed(self, task, error_msg: str) -> None:
+        if task.task_id in self.cards:
+            card = self.cards[task.task_id]
+            lbl_status = card.findChild(QLabel, "lbl_status")
+            if lbl_status:
+                lbl_status.setText("❌ Erro")
+                lbl_status.setStyleSheet("font-size: 12px; font-weight: 600; color: #EF4444;")
 
-            # 0. Título (Alinhado à Esquerda)
-            lbl_title = QTableWidgetItem(item.title)
-            lbl_title.setData(Qt.UserRole, item.url)
-            lbl_title.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-            self.table.setItem(row_idx, 0, lbl_title)
-
-            # 1. Qualidade (Centralizado)
-            item_q = QTableWidgetItem(item.quality)
-            item_q.setTextAlignment(Qt.AlignCenter)
-            self.table.setItem(row_idx, 1, item_q)
-
-            # 2. Tamanho (Centralizado)
-            item_s = QTableWidgetItem(item.size)
-            item_s.setTextAlignment(Qt.AlignCenter)
-            self.table.setItem(row_idx, 2, item_s)
-
-            # 3. Barra de Progresso
-            pbar = QProgressBar()
-            pbar.setRange(0, 100)
-            pbar.setValue(int(item.progress))
-            pbar.setTextVisible(True)
-            pbar.setStyleSheet(
-                """
-                QProgressBar {
-                    border: 1px solid #26262B;
-                    border-radius: 4px;
-                    text-align: center;
-                    background-color: #0B0B0C;
-                    color: #FFF;
-                    font-size: 10px;
-                }
-                QProgressBar::chunk {
-                    background-color: #007ACC;
-                    border-radius: 3px;
-                }
-                """
-            )
-            self.table.setCellWidget(row_idx, 3, pbar)
-
-            # 4. Velocidade (Centralizado)
-            item_sp = QTableWidgetItem(item.speed)
-            item_sp.setTextAlignment(Qt.AlignCenter)
-            self.table.setItem(row_idx, 4, item_sp)
-
-            # 5. Status (Centralizado)
-            item_st = QTableWidgetItem(item.status)
-            item_st.setTextAlignment(Qt.AlignCenter)
-            self.table.setItem(row_idx, 5, item_st)
-
-            # 6. Ações (Botão Remover)
-            btn_remove = QPushButton("❌")
-            btn_remove.setStyleSheet("background: transparent; border: none; font-size: 12px;")
-            btn_remove.setCursor(Qt.PointingHandCursor)
-            btn_remove.clicked.connect(lambda _, u=item.url: mgr.remove_item(u))
-            self.table.setCellWidget(row_idx, 6, btn_remove)
-
-    def _find_row_by_url(self, url: str) -> int:
-        for r in range(self.table.rowCount()):
-            item = self.table.item(r, 0)
-            if item and item.data(Qt.UserRole) == url:
-                return r
-        return -1
-
-    def _update_row_for_url(self, url: str, col: int, text: str) -> None:
-        row = self._find_row_by_url(url)
-        if row != -1:
-            item = self.table.item(row, col)
-            if item:
-                item.setText(text)
+    def on_show(self) -> None:
+        pass
 
 
-# Aliases de compatibilidade
-DownloadsView = DownloadsPage
-DownloadsWidget = DownloadsPage
+PRTDownloadsPage = DownloadsPage

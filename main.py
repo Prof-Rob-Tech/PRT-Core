@@ -14,7 +14,7 @@
 import sys
 
 from core.application import Application
-
+from database.db_manager import db_manager
 
 def main() -> int:
     application = Application()

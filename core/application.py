@@ -21,6 +21,11 @@ except ImportError:
     from ui.main_window import MainWindow
 
 from ui.widgets.sidebar import PRTSidebar
+from core.download_manager import download_manager
+from services.extractor_service import extractor_service
+
+# Dentro do __init__ da classe Application:
+download_manager.register_engine(extractor_service.download_media_task)
 
 
 class Application:

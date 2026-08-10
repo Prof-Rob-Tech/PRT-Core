@@ -1,458 +1,307 @@
 """
 ===========================================================
 PRT Labs - UI / Pages
-Class: ConnectorPage
+Class: ConnectorPage / PRTConnectorPage
 
 Description:
-    Tela genérica e dinâmica para gerenciamento individual
-    de cada Conector (YouTube, Kiwify, Hotmart, Vimeo, 
-    Google Drive, Mega, etc.).
+    Página genérica e reutilizável para todos os conectores
+    (YouTube, TikTok, Kiwify, Hotmart, Vimeo, Drive, Mega, Universo).
 ===========================================================
 """
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QFrame,
-    QHBoxLayout,
-    QHeaderView,
-    QLabel,
-    QLineEdit,
-    QPushButton,
-    QScrollArea,
-    QTableWidget,
-    QTableWidgetItem,
-    QVBoxLayout,
-    QWidget,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QFrame, QLineEdit, QTableWidget, QTableWidgetItem, QHeaderView,
+    QScrollArea
 )
 
 
 class ConnectorPage(QWidget):
-    """Página detalhada de controle e extração de um Conector específico."""
+    """Página de Conector genérica reutilizável."""
 
-    CONNECTORS_CONFIG = {
-        "youtube": {
-            "name": "YouTube",
-            "category": "Player & Streaming",
-            "icon": "▶️",
-            "color": "#FF0000",
-            "default_url": "https://www.youtube.com",
-            "desc": "Conector para extração de vídeos públicos, não listados, playlists e transmissões.",
-            "placeholder": "Cole a URL do vídeo ou playlist do YouTube...",
-            "status": "Conectado",
-        },
-        "kiwify": {
-            "name": "Kiwify",
-            "category": "Área de Membros / Cursos",
-            "icon": "🟢",
-            "color": "#22C55E",
-            "default_url": "https://dashboard.kiwify.com.br",
-            "desc": "Conector automático para áreas de membros Kiwify e Nutror com suporte a HLS e M3U8.",
-            "placeholder": "Cole a URL do curso ou aula da Kiwify...",
-            "status": "Conectado",
-        },
-        "hotmart": {
-            "name": "Hotmart",
-            "category": "Área de Membros / Cursos",
-            "icon": "🔥",
-            "color": "#F97316",
-            "default_url": "https://club.hotmart.com",
-            "desc": "Mapeador e extrator completo para Hotmart Club v3, vídeos embutidos e anexos.",
-            "placeholder": "Cole a URL da área de alunos do Hotmart Club...",
-            "status": "Conectado",
-        },
-        "vimeo": {
-            "name": "Vimeo",
-            "category": "Player HLS / Privado",
-            "icon": "🔹",
-            "color": "#00ADEF",
-            "default_url": "https://vimeo.com",
-            "desc": "Decodificador de vídeos privados do Vimeo, M3U8 master playlist e chaves HLS.",
-            "placeholder": "Cole a URL do vídeo Vimeo ou player embutido...",
-            "status": "Standby",
-        },
-        "google_drive": {
-            "name": "Google Drive",
-            "category": "Armazenamento em Nuvem",
-            "icon": "🔺",
-            "color": "#EA4335",
-            "default_url": "https://drive.google.com",
-            "desc": "Download de arquivos grandes, pastas inteiras e mídias hospedadas no Google Drive.",
-            "placeholder": "Cole o link da pasta ou arquivo do Google Drive...",
-            "status": "Standby",
-        },
-        "mega": {
-            "name": "Mega",
-            "category": "Armazenamento em Nuvem",
-            "icon": "🔴",
-            "color": "#D9252A",
-            "default_url": "https://mega.nz",
-            "desc": "Extrator e gerenciador de downloads para links e pastas do Mega.nz.",
-            "placeholder": "Cole a URL de download ou pasta do Mega...",
-            "status": "Standby",
-        },
-    }
-
-    def __init__(self, platform_key: str = "youtube", parent=None) -> None:
+    def __init__(self, platform_key: str = "conector", connector_name: str = None, parent=None, *args, **kwargs) -> None:
         super().__init__(parent)
-        self.platform_key = platform_key.lower().replace("-", "_")
-        self.config = self.CONNECTORS_CONFIG.get(
-            self.platform_key,
-            {
-                "name": platform_key.capitalize(),
-                "category": "Conector Personalizado",
-                "icon": "⚡",
-                "color": "#6366F1",
-                "default_url": "https://google.com",
-                "desc": "Gerenciamento e captura de mídias para esta plataforma.",
-                "placeholder": "Cole a URL para extração...",
-                "status": "Desconhecido",
-            },
-        )
 
+        if connector_name:
+            self.platform_key = connector_name.lower().replace("-", "_").replace(" ", "_")
+            self.display_name = connector_name
+        elif isinstance(platform_key, str):
+            self.platform_key = platform_key.lower().replace("-", "_").replace(" ", "_")
+            self.display_name = platform_key.capitalize()
+        else:
+            self.platform_key = "conector"
+            self.display_name = "Conector"
+
+        NAMES_MAP = {
+            "youtube": "YouTube",
+            "tiktok": "TikTok",
+            "kiwify": "Kiwify",
+            "hotmart": "Hotmart",
+            "vimeo": "Vimeo",
+            "gdrive": "Google Drive",
+            "google_drive": "Google Drive",
+            "mega": "Mega",
+            "universo": "Universo Técnico",
+            "universo_tecnico": "Universo Técnico",
+        }
+        
+        self.display_name = NAMES_MAP.get(self.platform_key, self.display_name)
+
+        self.setStyleSheet("""
+            QWidget {
+                background-color: #09090B;
+                color: #FFFFFF;
+                font-family: 'Segoe UI', sans-serif;
+            }
+            QScrollArea {
+                border: none;
+                background-color: transparent;
+            }
+        """)
+
+        self._setup_ui()
+
+    def _setup_ui(self) -> None:
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
 
-        scroll = QScrollArea()
+        scroll = QScrollArea(self)
         scroll.setWidgetResizable(True)
-        scroll.setStyleSheet(
-            """
+        scroll.setStyleSheet("""
             QScrollArea {
-                background-color: #0E0F12;
                 border: none;
+                background-color: transparent;
             }
             QScrollBar:vertical {
-                background: #121318;
+                background: #09090B;
                 width: 8px;
-                border-radius: 4px;
+                margin: 0px;
             }
             QScrollBar::handle:vertical {
                 background: #27272A;
+                min-height: 20px;
                 border-radius: 4px;
             }
-        """
-        )
+            QScrollBar::handle:vertical:hover {
+                background: #3F3F46;
+            }
+        """)
 
         container = QWidget()
-        container_layout = QVBoxLayout(container)
-        container_layout.setContentsMargins(24, 24, 24, 24)
-        container_layout.setSpacing(20)
+        container.setStyleSheet("background-color: transparent;")
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(20)
 
-        # 1. Cabeçalho do Conector
-        container_layout.addWidget(self._create_header_card())
+        # 1. Header do Conector
+        header_box = QVBoxLayout()
+        title = QLabel(f"Conector {self.display_name}")
+        title.setStyleSheet("font-size: 24px; font-weight: bold; color: #FFFFFF; border: none; background: transparent;")
+        
+        subtitle = QLabel(f"Capture, extraia e gerencie conteúdos diretamente do {self.display_name}.")
+        subtitle.setStyleSheet("font-size: 13px; color: #71717A; border: none; background: transparent;")
+        
+        header_box.addWidget(title)
+        header_box.addWidget(subtitle)
+        layout.addLayout(header_box)
 
-        # 2. Extrator Direto por Link
-        container_layout.addWidget(self._create_extractor_card())
-
-        # 3. Painel de Autenticação / Configuração
-        container_layout.addWidget(self._create_auth_card())
-
-        # 4. Tabela de Mídias Detectadas / Histórico
-        container_layout.addWidget(self._create_history_card())
-
-        container_layout.addStretch()
-        scroll.setWidget(container)
-        main_layout.addWidget(scroll)
-
-    def _create_header_card(self) -> QFrame:
-        """Cria o card de apresentação do conector com ações rápidas."""
-        card = QFrame()
-        card.setStyleSheet(
-            """
-            QFrame {
+        # 2. Card de Captura por URL
+        capture_card = QFrame()
+        capture_card.setObjectName("captureCard")
+        capture_card.setStyleSheet("""
+            QFrame#captureCard {
                 background-color: #18181B;
                 border: 1px solid #27272A;
-                border-radius: 12px;
-            }
-        """
-        )
-        layout = QHBoxLayout(card)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(16)
-
-        lbl_icon = QLabel(self.config["icon"])
-        lbl_icon.setStyleSheet("font-size: 32px;")
-
-        v_info = QVBoxLayout()
-        v_info.setSpacing(4)
-
-        lbl_name = QLabel(f"{self.config['name']} Conector")
-        lbl_name.setStyleSheet("color: #FFFFFF; font-size: 20px; font-weight: bold;")
-
-        lbl_desc = QLabel(f"{self.config['category']} • {self.config['desc']}")
-        lbl_desc.setStyleSheet("color: #A1A1AA; font-size: 13px;")
-
-        v_info.addWidget(lbl_name)
-        v_info.addWidget(lbl_desc)
-
-        # Badges & Botão de Abrir no Navegador
-        v_actions = QVBoxLayout()
-        v_actions.setSpacing(8)
-        v_actions.setAlignment(Qt.AlignRight)
-
-        status_str = self.config["status"]
-        is_conn = status_str == "Conectado"
-        bg_status = "rgba(34, 197, 94, 0.15)" if is_conn else "rgba(234, 179, 8, 0.15)"
-        border_status = "#22C55E" if is_conn else "#EAB308"
-        text_status = "#22C55E" if is_conn else "#EAB308"
-
-        lbl_badge = QLabel(f" ● {status_str.upper()} ")
-        lbl_badge.setStyleSheet(
-            f"""
-            QLabel {{
-                background-color: {bg_status};
-                color: {text_status};
-                font-weight: bold;
-                font-size: 11px;
-                padding: 4px 10px;
                 border-radius: 10px;
-                border: 1px solid {border_status};
-            }}
-        """
-        )
-
-        btn_open_browser = QPushButton("🌐 Abrir no Navegador PRT")
-        btn_open_browser.setStyleSheet(
-            """
-            QPushButton {
-                background-color: #6366F1;
-                color: #FFFFFF;
-                font-weight: bold;
-                font-size: 12px;
-                padding: 8px 14px;
-                border-radius: 6px;
             }
-            QPushButton:hover {
-                background-color: #4F46E5;
+            QLabel {
+                border: none !important;
+                background: transparent !important;
             }
-        """
-        )
+        """)
+        capture_layout = QVBoxLayout(capture_card)
+        capture_layout.setContentsMargins(16, 16, 16, 16)
+        capture_layout.setSpacing(12)
 
-        v_actions.addWidget(lbl_badge, alignment=Qt.AlignRight)
-        v_actions.addWidget(btn_open_browser)
+        card_title = QLabel(f"🔗 Capturar Mídia via URL - {self.display_name}")
+        card_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #E4E4E7;")
+        capture_layout.addWidget(card_title)
 
-        layout.addWidget(lbl_icon)
-        layout.addLayout(v_info, stretch=1)
-        layout.addLayout(v_actions)
+        input_layout = QHBoxLayout()
+        input_layout.setSpacing(10)
 
-        return card
-
-    def _create_extractor_card(self) -> QFrame:
-        """Cria a seção para inserção direta de link para extração."""
-        card = QFrame()
-        card.setStyleSheet(
-            """
-            QFrame {
-                background-color: #18181B;
-                border: 1px solid #27272A;
-                border-radius: 12px;
-            }
-        """
-        )
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(12)
-
-        lbl_title = QLabel("⚡ Analisador & Extrator Rápido de Mídias")
-        lbl_title.setStyleSheet("color: #FFFFFF; font-size: 15px; font-weight: bold;")
-
-        h_input = QHBoxLayout()
-        h_input.setSpacing(10)
-
-        self.txt_url = QLineEdit()
-        self.txt_url.setPlaceholderText(self.config["placeholder"])
-        self.txt_url.setStyleSheet(
-            """
+        self.url_input = QLineEdit()
+        self.url_input.setPlaceholderText(f"Cole o link do {self.display_name} aqui (ex: https://...)")
+        self.url_input.setStyleSheet("""
             QLineEdit {
-                background-color: #0E0F12;
+                background-color: #09090B;
                 color: #FFFFFF;
-                border: 1px solid #3F3F46;
-                border-radius: 8px;
+                border: 1px solid #27272A;
+                border-radius: 6px;
                 padding: 10px 14px;
                 font-size: 13px;
             }
             QLineEdit:focus {
-                border: 1px solid #6366F1;
+                border-color: #6366F1;
             }
-        """
-        )
+        """)
+        input_layout.addWidget(self.url_input)
 
-        btn_analyze = QPushButton("🔍 Capturar Mídia")
-        btn_analyze.setStyleSheet(
-            """
+        btn_fetch = QPushButton("Analisar Mídia")
+        btn_fetch.setCursor(Qt.PointingHandCursor)
+        btn_fetch.setStyleSheet("""
             QPushButton {
-                background-color: #22C55E;
+                background-color: #6366F1;
                 color: #FFFFFF;
-                font-weight: bold;
+                border: none;
                 padding: 10px 20px;
-                border-radius: 8px;
+                border-radius: 6px;
+                font-weight: 600;
                 font-size: 13px;
             }
             QPushButton:hover {
-                background-color: #16A34A;
+                background-color: #4F46E5;
             }
-        """
-        )
+        """)
+        input_layout.addWidget(btn_fetch)
 
-        h_input.addWidget(self.txt_url, stretch=1)
-        h_input.addWidget(btn_analyze)
+        capture_layout.addLayout(input_layout)
+        layout.addWidget(capture_card)
 
-        layout.addWidget(lbl_title)
-        layout.addLayout(h_input)
-
-        return card
-
-    def _create_auth_card(self) -> QFrame:
-        """Cria o painel para gerenciar cookies de sessão / credenciais do conector."""
-        card = QFrame()
-        card.setStyleSheet(
-            """
-            QFrame {
+        # 3. Tabela de Mídias Recentes
+        table_card = QFrame()
+        table_card.setObjectName("tableCard")
+        table_card.setStyleSheet("""
+            QFrame#tableCard {
                 background-color: #18181B;
                 border: 1px solid #27272A;
-                border-radius: 12px;
+                border-radius: 10px;
             }
-        """
-        )
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(12)
-
-        lbl_title = QLabel("🔐 Autenticação & Sessão (Session Cookies)")
-        lbl_title.setStyleSheet("color: #FFFFFF; font-size: 15px; font-weight: bold;")
-
-        lbl_desc = QLabel(
-            "Caso a plataforma exija login para acessar o conteúdo privado, "
-            "o PRT NEXUS sincroniza os cookies automaticamente através do navegador embutido."
-        )
-        lbl_desc.setStyleSheet("color: #A1A1AA; font-size: 12px;")
-
-        h_actions = QHBoxLayout()
-        h_actions.setSpacing(10)
-
-        btn_sync = QPushButton("🔄 Sincronizar Cookies do Navegador")
-        btn_sync.setStyleSheet(
-            """
-            QPushButton {
-                background-color: #27272A;
-                color: #FFFFFF;
-                border-radius: 6px;
-                padding: 8px 14px;
-                font-size: 12px;
-                font-weight: bold;
+            QLabel {
+                border: none !important;
+                background: transparent !important;
             }
-            QPushButton:hover {
-                background-color: #3F3F46;
-            }
-        """
-        )
+        """)
+        table_card_layout = QVBoxLayout(table_card)
+        table_card_layout.setContentsMargins(16, 16, 16, 16)
+        table_card_layout.setSpacing(12)
 
-        btn_test = QPushButton("⚡ Testar Conexão de Sessão")
-        btn_test.setStyleSheet(
-            """
-            QPushButton {
-                background-color: #27272A;
-                color: #A1A1AA;
-                border-radius: 6px;
-                padding: 8px 14px;
-                font-size: 12px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #3F3F46;
-                color: #FFFFFF;
-            }
-        """
-        )
+        table_title = QLabel("📦 Mídias Recentes Capturadas neste Conector")
+        table_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #E4E4E7;")
+        table_card_layout.addWidget(table_title)
 
-        h_actions.addWidget(btn_sync)
-        h_actions.addWidget(btn_test)
-        h_actions.addStretch()
+        # Tabela Estilizada
+        self.table = QTableWidget()
+        self.table.setColumnCount(4)
+        self.table.setHorizontalHeaderLabels(["Título / Nome do Arquivo", "Qualidade / Formato", "Tamanho Est.", "Ação"])
+        self.table.verticalHeader().setVisible(False)
+        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.setShowGrid(False)
 
-        layout.addWidget(lbl_title)
-        layout.addWidget(lbl_desc)
-        layout.addLayout(h_actions)
-
-        return card
-
-    def _create_history_card(self) -> QFrame:
-        """Cria o card com a tabela de capturas recentes desta plataforma."""
-        card = QFrame()
-        card.setStyleSheet(
-            """
-            QFrame {
-                background-color: #18181B;
-                border: 1px solid #27272A;
-                border-radius: 12px;
-            }
-        """
-        )
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(12)
-
-        lbl_title = QLabel("📦 Mídias Recentes Capturadas neste Conector")
-        lbl_title.setStyleSheet("color: #FFFFFF; font-size: 15px; font-weight: bold;")
-
-        table = QTableWidget(3, 4)
-        table.setHorizontalHeaderLabels(["Título / Nome do Arquivo", "Qualidade / Formato", "Tamanho Est.", "Ação"])
-        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        table.verticalHeader().setVisible(False)
-        table.setMinimumHeight(150)
-
-        table.setStyleSheet(
-            """
+        # Estilo CSS da Tabela
+        self.table.setStyleSheet("""
             QTableWidget {
-                background-color: #0E0F12;
-                color: #FFFFFF;
+                background-color: #09090B;
                 border: 1px solid #27272A;
                 border-radius: 8px;
-                gridline-color: #18181B;
+                gridline-color: transparent;
+                color: #E4E4E7;
             }
             QHeaderView::section {
                 background-color: #18181B;
                 color: #A1A1AA;
-                padding: 8px;
-                border: none;
                 font-weight: bold;
+                font-size: 12px;
+                border: none;
+                border-bottom: 1px solid #27272A;
+                padding: 10px;
             }
             QTableWidget::item {
-                padding: 8px;
+                border-bottom: 1px solid #18181B;
+                font-size: 13px;
             }
-        """
-        )
+            QTableWidget::item:selected {
+                background-color: #27272A;
+                color: #FFFFFF;
+            }
+        """)
 
-        demo_data = [
-            (f"Vídeo de Exemplo {self.config['name']} #01", "1080p (MP4/HLS)", "450 MB"),
-            (f"Material Complementar {self.config['name']} #02", "720p (MP4)", "120 MB"),
-            (f"Transmissão Gravada {self.config['name']} #03", "4K Ultra HD", "1.2 GB"),
+        # Configuração das Colunas
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.Interactive)
+        header.setSectionResizeMode(2, QHeaderView.Interactive)
+        header.setSectionResizeMode(3, QHeaderView.Fixed)
+
+        self.table.setColumnWidth(1, 160)
+        self.table.setColumnWidth(2, 120)
+        self.table.setColumnWidth(3, 130)
+
+        # Dados Exemplo
+        sample_data = [
+            (f"Vídeo de Exemplo {self.display_name} #01", "1080p (MP4/HLS)", "450 MB"),
+            (f"Material Complementar {self.display_name} #02", "720p (MP4)", "120 MB"),
+            (f"Transmissão Gravada {self.display_name} #03", "4K Ultra HD", "1.2 GB"),
         ]
 
-        for row, (name, qual, size) in enumerate(demo_data):
-            table.setItem(row, 0, QTableWidgetItem(name))
-            table.setItem(row, 1, QTableWidgetItem(qual))
-            table.setItem(row, 2, QTableWidgetItem(size))
+        self.table.setRowCount(len(sample_data))
+        for row, (item_title, qual, size) in enumerate(sample_data):
+            # Define altura confortável de 42px para cada linha
+            self.table.setRowHeight(row, 42)
 
-            btn_dl = QPushButton("⬇️ Baixar")
-            btn_dl.setStyleSheet(
-                """
+            t_item = QTableWidgetItem(f"  {item_title}")
+            t_item.setTextAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+            q_item = QTableWidgetItem(qual)
+            q_item.setTextAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+            s_item = QTableWidgetItem(size)
+            s_item.setTextAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+
+            self.table.setItem(row, 0, t_item)
+            self.table.setItem(row, 1, q_item)
+            self.table.setItem(row, 2, s_item)
+
+            # Botão de Ação Ajustado
+            btn_action = QPushButton("⬇️ Baixar")
+            btn_action.setCursor(Qt.PointingHandCursor)
+            btn_action.setFixedHeight(28)
+            btn_action.setStyleSheet("""
                 QPushButton {
                     background-color: #6366F1;
                     color: #FFFFFF;
-                    border-radius: 4px;
-                    padding: 4px 10px;
-                    font-weight: bold;
+                    border: none;
+                    border-radius: 6px;
+                    padding: 0px 12px;
+                    font-size: 12px;
+                    font-weight: 600;
                 }
                 QPushButton:hover {
                     background-color: #4F46E5;
                 }
-            """
-            )
-            table.setCellWidget(row, 3, btn_dl)
+            """)
 
-        layout.addWidget(lbl_title)
-        layout.addWidget(table)
+            cell_widget = QWidget()
+            cell_layout = QHBoxLayout(cell_widget)
+            cell_layout.setContentsMargins(6, 0, 10, 0)
+            cell_layout.setAlignment(Qt.AlignCenter)
+            cell_layout.addWidget(btn_action)
 
-        return card
+            self.table.setCellWidget(row, 3, cell_widget)
+
+        self.table.setFixedHeight(180)
+        table_card_layout.addWidget(self.table)
+
+        layout.addWidget(table_card)
+        layout.addStretch()
+
+        scroll.setWidget(container)
+        main_layout.addWidget(scroll)
+
+    def on_show(self) -> None:
+        pass
+
+
+# Alias de compatibilidade
+PRTConnectorPage = ConnectorPage

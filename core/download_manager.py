@@ -37,6 +37,7 @@ class DownloadTask:
     progress: int = 0
     speed: str = "0 MB/s"
     eta: str = "--:--"
+    file_size: str = "-- MB"
     error_msg: str = ""
 
 
@@ -76,9 +77,15 @@ class DownloadWorker(QThread):
         except Exception as e:
             self.error_signal.emit(self.task.task_id, str(e))
 
-    def _progress_hook(self, pct: int, speed: str, eta: str) -> None:
+    def _progress_hook(self, pct: int, speed: str, eta: str, file_size: str = "-- MB") -> None:
         """Callback invocado pelos motores de extração durante o progresso."""
         if not self._is_cancelled:
+            self.task.progress = pct
+            self.task.speed = speed
+            self.task.eta = eta
+            self.task.file_size = file_size  # 👈 Atualiza o tamanho na task
+            
+            # Se o seu sinal envia a task ou os atributos:
             self.progress_signal.emit(self.task.task_id, pct, speed, eta)
 
 

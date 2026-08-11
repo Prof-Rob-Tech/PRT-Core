@@ -4,11 +4,11 @@ PRT Labs - UI / Pages
 Class: DownloadsPage / PRTDownloadsPage
 
 Description:
-    Gerenciador visual de Downloads com progresso em tempo real
-    conectado ao DownloadManager (QThread Signals).
+    Gerenciador visual de Downloads com suporte a abertura de pasta.
 ===========================================================
 """
 
+import os
 from PySide6.QtCore import Qt, Slot
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -21,7 +21,7 @@ except Exception:
     class BasePage(QWidget):
         pass
 
-from core.download_manager import download_manager, TaskStatus
+from core.download_manager import download_manager
 from database.db_manager import db_manager
 
 
@@ -84,7 +84,7 @@ class DownloadsPage(BasePage):
         self.cards_layout.setContentsMargins(24, 24, 24, 24)
         self.cards_layout.setSpacing(16)
 
-        # 1. Header
+        # Header
         header_box = QVBoxLayout()
         lbl_title = QLabel("⬇️ Fila de Downloads")
         lbl_title.setStyleSheet("font-size: 24px; font-weight: bold; color: #FFFFFF; border: none;")
@@ -95,7 +95,7 @@ class DownloadsPage(BasePage):
 
         self.cards_layout.addLayout(header_box)
 
-        # 2. Estado Vazio Inicial
+        # Estado Vazio
         self.empty_card = QFrame()
         self.empty_card.setStyleSheet("""
             QFrame {
@@ -132,7 +132,6 @@ class DownloadsPage(BasePage):
         main_layout.addWidget(scroll)
 
     def _connect_signals(self) -> None:
-        """Conecta o DownloadManager com a UI."""
         download_manager.task_added.connect(self._on_task_added)
         download_manager.task_updated.connect(self._on_task_updated)
         download_manager.task_completed.connect(self._on_task_completed)
@@ -157,21 +156,44 @@ class DownloadsPage(BasePage):
         card_layout.setContentsMargins(16, 14, 16, 14)
         card_layout.setSpacing(8)
 
-        # Topo Card: Título + Status
+        # Topo
         top_layout = QHBoxLayout()
         lbl_title = QLabel(task.title)
+        lbl_title.setObjectName("lbl_title")
         lbl_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #E4E4E7;")
 
-        lbl_status = QLabel(task.status.value)
+        status_str = getattr(task.status, 'value', str(task.status))
+        lbl_status = QLabel(status_str)
         lbl_status.setObjectName("lbl_status")
         lbl_status.setStyleSheet("font-size: 12px; font-weight: 600; color: #6366F1;")
 
+        btn_folder = QPushButton("📂 Abrir Pasta")
+        btn_folder.setObjectName("btn_folder")
+        btn_folder.setVisible(False)
+        btn_folder.setCursor(Qt.PointingHandCursor)
+        btn_folder.setStyleSheet("""
+            QPushButton {
+                background-color: #27272A;
+                color: #E4E4E7;
+                border: 1px solid #3F3F46;
+                padding: 4px 10px;
+                border-radius: 6px;
+                font-size: 11px;
+                font-weight: 600;
+            }
+            QPushButton:hover { background-color: #3F3F46; color: #FFFFFF; }
+        """)
+        
+        save_dir = task.save_path if task.save_path else os.path.join(os.path.expanduser("~"), "Downloads", "PRT_Nexus")
+        btn_folder.clicked.connect(lambda: os.startfile(save_dir) if os.path.exists(save_dir) else None)
+
         top_layout.addWidget(lbl_title)
         top_layout.addStretch()
+        top_layout.addWidget(btn_folder)
         top_layout.addWidget(lbl_status)
         card_layout.addLayout(top_layout)
 
-        # Barra de Progresso
+        # Barra
         pbar = QProgressBar()
         pbar.setObjectName("pbar")
         pbar.setValue(task.progress)
@@ -190,9 +212,10 @@ class DownloadsPage(BasePage):
         """)
         card_layout.addWidget(pbar)
 
-        # Rodapé Card
+        # Rodapé
         bot_layout = QHBoxLayout()
-        lbl_info = QLabel(f"Plataforma: {task.platform.capitalize()} | Speed: {task.speed} | ETA: {task.eta}")
+        size_val = getattr(task, 'file_size', '-- MB')
+        lbl_info = QLabel(f"Plataforma: {task.platform.capitalize()} | Size: {size_val} | Speed: {task.speed} | ETA: {task.eta}")
         lbl_info.setObjectName("lbl_info")
         lbl_info.setStyleSheet("font-size: 11px; color: #71717A;")
 
@@ -213,15 +236,27 @@ class DownloadsPage(BasePage):
         if task.task_id in self.cards:
             card = self.cards[task.task_id]
             pbar = card.findChild(QProgressBar, "pbar")
+            lbl_title = card.findChild(QLabel, "lbl_title")
             lbl_status = card.findChild(QLabel, "lbl_status")
             lbl_info = card.findChild(QLabel, "lbl_info")
             lbl_pct = card.findChild(QLabel, "lbl_pct")
 
-            if pbar: pbar.setValue(task.progress)
-            if lbl_pct: lbl_pct.setText(f"{task.progress}%")
-            if lbl_status: lbl_status.setText(task.status.value)
+            if lbl_title and task.title:
+                lbl_title.setText(task.title)
+
+            if pbar:
+                pbar.setValue(task.progress)
+
+            if lbl_pct:
+                lbl_pct.setText(f"{task.progress}%")
+
+            if lbl_status:
+                status_str = getattr(task.status, 'value', str(task.status))
+                lbl_status.setText(status_str)
+
             if lbl_info:
-                lbl_info.setText(f"Plataforma: {task.platform.capitalize()} | Speed: {task.speed} | ETA: {task.eta}")
+                size_val = getattr(task, 'file_size', '-- MB')
+                lbl_info.setText(f"Plataforma: {task.platform.capitalize()} | Size: {size_val} | Speed: {task.speed} | ETA: {task.eta}")
 
     @Slot(object)
     def _on_task_completed(self, task) -> None:
@@ -229,9 +264,14 @@ class DownloadsPage(BasePage):
         if task.task_id in self.cards:
             card = self.cards[task.task_id]
             lbl_status = card.findChild(QLabel, "lbl_status")
+            btn_folder = card.findChild(QPushButton, "btn_folder")
+
             if lbl_status:
                 lbl_status.setText("✅ Concluído")
                 lbl_status.setStyleSheet("font-size: 12px; font-weight: 600; color: #10B981;")
+
+            if btn_folder:
+                btn_folder.setVisible(True)
 
         db_manager.add_download(
             task_id=task.task_id,
@@ -248,9 +288,15 @@ class DownloadsPage(BasePage):
         if task.task_id in self.cards:
             card = self.cards[task.task_id]
             lbl_status = card.findChild(QLabel, "lbl_status")
+            lbl_info = card.findChild(QLabel, "lbl_info")
+
             if lbl_status:
-                lbl_status.setText("❌ Erro")
+                lbl_status.setText("❌ Erro no Download")
                 lbl_status.setStyleSheet("font-size: 12px; font-weight: 600; color: #EF4444;")
+
+            if lbl_info:
+                lbl_info.setText(f"Detalhe: {error_msg[:90]}...")
+                lbl_info.setStyleSheet("font-size: 11px; color: #EF4444;")
 
     def on_show(self) -> None:
         pass

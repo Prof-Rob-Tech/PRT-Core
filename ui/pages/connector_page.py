@@ -4,24 +4,25 @@ PRT Labs - UI / Pages
 Class: ConnectorPage / PRTConnectorPage
 
 Description:
-    Página genérica e reutilizável para todos os conectores
-    (YouTube, TikTok, Kiwify, Hotmart, Vimeo, Drive, Mega, Universo).
-    Integrada ao DownloadManager para disparar downloads reais.
+    Página genérica para conectores com seletor de pasta de destino
+    integrada ao DownloadManager e DatabaseManager.
 ===========================================================
 """
 
+import os
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QLineEdit, QTableWidget, QTableWidgetItem, QHeaderView,
-    QScrollArea
+    QScrollArea, QFileDialog
 )
 
 from core.download_manager import download_manager
+from database.db_manager import db_manager
 
 
 class ConnectorPage(QWidget):
-    """Página de Conector genérica reutilizável."""
+    """Página de Conector com escolha de pasta personalizada."""
 
     def __init__(self, platform_key: str = "conector", connector_name: str = None, parent=None, *args, **kwargs) -> None:
         super().__init__(parent)
@@ -73,23 +74,10 @@ class ConnectorPage(QWidget):
         scroll = QScrollArea(self)
         scroll.setWidgetResizable(True)
         scroll.setStyleSheet("""
-            QScrollArea {
-                border: none;
-                background-color: transparent;
-            }
-            QScrollBar:vertical {
-                background: #09090B;
-                width: 8px;
-                margin: 0px;
-            }
-            QScrollBar::handle:vertical {
-                background: #27272A;
-                min-height: 20px;
-                border-radius: 4px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background: #3F3F46;
-            }
+            QScrollArea { border: none; background-color: transparent; }
+            QScrollBar:vertical { background: #09090B; width: 8px; margin: 0px; }
+            QScrollBar::handle:vertical { background: #27272A; min-height: 20px; border-radius: 4px; }
+            QScrollBar::handle:vertical:hover { background: #3F3F46; }
         """)
 
         container = QWidget()
@@ -98,7 +86,7 @@ class ConnectorPage(QWidget):
         layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(20)
 
-        # 1. Header do Conector
+        # 1. Header
         header_box = QVBoxLayout()
         title = QLabel(f"Conector {self.display_name}")
         title.setStyleSheet("font-size: 24px; font-weight: bold; color: #FFFFFF; border: none; background: transparent;")
@@ -110,7 +98,7 @@ class ConnectorPage(QWidget):
         header_box.addWidget(subtitle)
         layout.addLayout(header_box)
 
-        # 2. Card de Captura por URL
+        # 2. Card de Captura por URL + Seletor de Pasta
         capture_card = QFrame()
         capture_card.setObjectName("captureCard")
         capture_card.setStyleSheet("""
@@ -119,10 +107,7 @@ class ConnectorPage(QWidget):
                 border: 1px solid #27272A;
                 border-radius: 10px;
             }
-            QLabel {
-                border: none !important;
-                background: transparent !important;
-            }
+            QLabel { border: none !important; background: transparent !important; }
         """)
         capture_layout = QVBoxLayout(capture_card)
         capture_layout.setContentsMargins(16, 16, 16, 16)
@@ -132,6 +117,7 @@ class ConnectorPage(QWidget):
         card_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #E4E4E7;")
         capture_layout.addWidget(card_title)
 
+        # Campo de Input da URL
         input_layout = QHBoxLayout()
         input_layout.setSpacing(10)
 
@@ -146,9 +132,7 @@ class ConnectorPage(QWidget):
                 padding: 10px 14px;
                 font-size: 13px;
             }
-            QLineEdit:focus {
-                border-color: #6366F1;
-            }
+            QLineEdit:focus { border-color: #6366F1; }
         """)
         self.url_input.returnPressed.connect(self._on_analisar_url)
         input_layout.addWidget(self.url_input)
@@ -165,17 +149,58 @@ class ConnectorPage(QWidget):
                 font-weight: 600;
                 font-size: 13px;
             }
-            QPushButton:hover {
-                background-color: #4F46E5;
-            }
+            QPushButton:hover { background-color: #4F46E5; }
         """)
         btn_fetch.clicked.connect(self._on_analisar_url)
         input_layout.addWidget(btn_fetch)
 
         capture_layout.addLayout(input_layout)
+
+        # Seletor da Pasta de Destino
+        folder_layout = QHBoxLayout()
+        folder_layout.setSpacing(10)
+
+        default_dir = os.path.join(os.path.expanduser("~"), "Downloads", "PRT_Nexus")
+        os.makedirs(default_dir, exist_ok=True)
+
+        self.folder_input = QLineEdit(default_dir)
+        self.folder_input.setReadOnly(True)
+        self.folder_input.setStyleSheet("""
+            QLineEdit {
+                background-color: #09090B;
+                color: #A1A1AA;
+                border: 1px solid #27272A;
+                border-radius: 6px;
+                padding: 8px 12px;
+                font-size: 12px;
+            }
+        """)
+        folder_layout.addWidget(self.folder_input)
+
+        btn_browse = QPushButton("📁 Alterar Pasta")
+        btn_browse.setCursor(Qt.PointingHandCursor)
+        btn_browse.setStyleSheet("""
+            QPushButton {
+                background-color: #27272A;
+                color: #E4E4E7;
+                border: 1px solid #3F3F46;
+                padding: 8px 14px;
+                border-radius: 6px;
+                font-weight: 600;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #3F3F46;
+                color: #FFFFFF;
+            }
+        """)
+        btn_browse.clicked.connect(self._on_select_folder)
+        folder_layout.addWidget(btn_browse)
+
+        capture_layout.addLayout(folder_layout)
         layout.addWidget(capture_card)
 
-        # 3. Tabela de Mídias Recentes
+        # 3. Tabela de Mídias Reais do Banco
         table_card = QFrame()
         table_card.setObjectName("tableCard")
         table_card.setStyleSheet("""
@@ -184,29 +209,24 @@ class ConnectorPage(QWidget):
                 border: 1px solid #27272A;
                 border-radius: 10px;
             }
-            QLabel {
-                border: none !important;
-                background: transparent !important;
-            }
+            QLabel { border: none !important; background: transparent !important; }
         """)
         table_card_layout = QVBoxLayout(table_card)
         table_card_layout.setContentsMargins(16, 16, 16, 16)
         table_card_layout.setSpacing(12)
 
-        table_title = QLabel("📦 Mídias Recentes Capturadas neste Conector")
+        table_title = QLabel(f"📦 Mídias Concluídas do {self.display_name}")
         table_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #E4E4E7;")
         table_card_layout.addWidget(table_title)
 
-        # Tabela Estilizada
         self.table = QTableWidget()
-        self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["Título / Nome do Arquivo", "Qualidade / Formato", "Tamanho Est.", "Ação"])
+        self.table.setColumnCount(3)
+        self.table.setHorizontalHeaderLabels(["Título / Nome do Arquivo", "URL / Link", "Status"])
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setShowGrid(False)
 
-        # Estilo CSS da Tabela
         self.table.setStyleSheet("""
             QTableWidget {
                 background-color: #09090B;
@@ -228,102 +248,61 @@ class ConnectorPage(QWidget):
                 border-bottom: 1px solid #18181B;
                 font-size: 13px;
             }
-            QTableWidget::item:selected {
-                background-color: #27272A;
-                color: #FFFFFF;
-            }
         """)
 
-        # Configuração das Colunas
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.Stretch)
-        header.setSectionResizeMode(1, QHeaderView.Interactive)
-        header.setSectionResizeMode(2, QHeaderView.Interactive)
-        header.setSectionResizeMode(3, QHeaderView.Fixed)
-
-        self.table.setColumnWidth(1, 160)
+        header.setSectionResizeMode(1, QHeaderView.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.Fixed)
         self.table.setColumnWidth(2, 120)
-        self.table.setColumnWidth(3, 130)
 
-        # Dados Exemplo
-        sample_data = [
-            (f"Vídeo de Exemplo {self.display_name} #01", "1080p (MP4/HLS)", "450 MB"),
-            (f"Material Complementar {self.display_name} #02", "720p (MP4)", "120 MB"),
-            (f"Transmissão Gravada {self.display_name} #03", "4K Ultra HD", "1.2 GB"),
-        ]
-
-        self.table.setRowCount(len(sample_data))
-        for row, (item_title, qual, size) in enumerate(sample_data):
-            self.table.setRowHeight(row, 42)
-
-            t_item = QTableWidgetItem(f"  {item_title}")
-            t_item.setTextAlignment(Qt.AlignVCenter | Qt.AlignLeft)
-            q_item = QTableWidgetItem(qual)
-            q_item.setTextAlignment(Qt.AlignVCenter | Qt.AlignLeft)
-            s_item = QTableWidgetItem(size)
-            s_item.setTextAlignment(Qt.AlignVCenter | Qt.AlignLeft)
-
-            self.table.setItem(row, 0, t_item)
-            self.table.setItem(row, 1, q_item)
-            self.table.setItem(row, 2, s_item)
-
-            # Botão de Ação Ajustado com Sinal
-            btn_action = QPushButton("⬇️ Baixar")
-            btn_action.setCursor(Qt.PointingHandCursor)
-            btn_action.setFixedHeight(28)
-            btn_action.setStyleSheet("""
-                QPushButton {
-                    background-color: #6366F1;
-                    color: #FFFFFF;
-                    border: none;
-                    border-radius: 6px;
-                    padding: 0px 12px;
-                    font-size: 12px;
-                    font-weight: 600;
-                }
-                QPushButton:hover {
-                    background-color: #4F46E5;
-                }
-            """)
-            btn_action.clicked.connect(lambda checked=False, t=item_title: self._on_download_row(t))
-
-            cell_widget = QWidget()
-            cell_layout = QHBoxLayout(cell_widget)
-            cell_layout.setContentsMargins(6, 0, 10, 0)
-            cell_layout.setAlignment(Qt.AlignCenter)
-            cell_layout.addWidget(btn_action)
-
-            self.table.setCellWidget(row, 3, cell_widget)
-
-        self.table.setFixedHeight(180)
         table_card_layout.addWidget(self.table)
-
         layout.addWidget(table_card)
         layout.addStretch()
 
         scroll.setWidget(container)
         main_layout.addWidget(scroll)
 
-    def _on_analisar_url(self) -> None:
+        self.refresh_table_data()
+
+    def _on_select_folder(self) -> None:
+        """Abre a caixa de diálogo para escolher a pasta de destino."""
+        folder = QFileDialog.getExistingDirectory(self, "Selecionar Pasta de Destino", self.folder_input.text())
+        if folder:
+            self.folder_input.setText(folder)
+
+    def refresh_table_data(self) -> None:
+        all_downloads = db_manager.get_all_downloads()
+        real_data = [d for d in all_downloads if d.get("platform") == self.platform_key]
+
+        self.table.setRowCount(len(real_data))
+        for row, item in enumerate(real_data):
+            self.table.setRowHeight(row, 40)
+
+            t_item = QTableWidgetItem(f"  {item.get('title', 'Mídia')}")
+            u_item = QTableWidgetItem(item.get('url', ''))
+            s_item = QTableWidgetItem(item.get('status', 'Concluído'))
+
+            s_item.setTextAlignment(Qt.AlignCenter)
+
+            self.table.setItem(row, 0, t_item)
+            self.table.setItem(row, 1, u_item)
+            self.table.setItem(row, 2, s_item)
+
+    def _on_analisar_url(self, *args) -> None:
         url = self.url_input.text().strip()
+        save_path = self.folder_input.text().strip()
         if url:
             download_manager.add_download(
                 url=url,
                 title=f"Mídia do {self.display_name}",
-                platform=self.platform_key
+                platform=self.platform_key,
+                save_path=save_path
             )
             self.url_input.clear()
 
-    def _on_download_row(self, item_title: str) -> None:
-        download_manager.add_download(
-            url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-            title=item_title,
-            platform=self.platform_key
-        )
-
     def on_show(self) -> None:
-        pass
+        self.refresh_table_data()
 
 
-# Alias de compatibilidade
 PRTConnectorPage = ConnectorPage

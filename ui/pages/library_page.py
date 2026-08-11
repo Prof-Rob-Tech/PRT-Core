@@ -4,12 +4,13 @@ PRT Labs - UI / Pages
 Class: LibraryPage / PRTLibraryPage
 
 Description:
-    Biblioteca visual de mídias conectada ao SQLite (db_manager)
-    com reprodução direta de arquivos (Executar automático).
+    Biblioteca visual de mídias conectada ao SQLite com 
+    suporte total a deleção de itens e limpeza de biblioteca.
 ===========================================================
 """
 
 import os
+import sqlite3
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -63,6 +64,25 @@ class LibraryPage(BasePage):
 
         self._setup_ui()
 
+    def _get_db_connection(self):
+        """Conecta diretamente ao banco de dados SQLite para executar queries de remoção."""
+        db_paths = [
+            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "database", "nexus.db"),
+            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "nexus.db"),
+            "nexus.db",
+            "database/nexus.db"
+        ]
+        if hasattr(db_manager, "db_path") and getattr(db_manager, "db_path"):
+            db_paths.insert(0, getattr(db_manager, "db_path"))
+
+        for path in db_paths:
+            if os.path.exists(path):
+                try:
+                    return sqlite3.connect(path)
+                except Exception:
+                    pass
+        return None
+
     def _setup_ui(self) -> None:
         main_layout = self.layout()
         if main_layout is None:
@@ -86,7 +106,7 @@ class LibraryPage(BasePage):
         self.cards_layout.setContentsMargins(24, 24, 24, 24)
         self.cards_layout.setSpacing(20)
 
-        # 1. Header + Botão para Abrir Pasta Geral
+        # 1. Header + Botões de Ação
         header_layout = QHBoxLayout()
         header_box = QVBoxLayout()
         lbl_title = QLabel("📁 Biblioteca de Mídias")
@@ -96,6 +116,28 @@ class LibraryPage(BasePage):
         header_box.addWidget(lbl_title)
         header_box.addWidget(lbl_subtitle)
 
+        # Botão Limpar Biblioteca
+        btn_clear = QPushButton("🗑️ Limpar Biblioteca")
+        btn_clear.setCursor(Qt.PointingHandCursor)
+        btn_clear.setStyleSheet("""
+            QPushButton {
+                background-color: #27272A;
+                color: #EF4444;
+                border: 1px solid #3F3F46;
+                padding: 8px 14px;
+                border-radius: 8px;
+                font-weight: 600;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #7F1D1D;
+                color: #FFFFFF;
+                border-color: #EF4444;
+            }
+        """)
+        btn_clear.clicked.connect(self._on_clear_library)
+
+        # Botão Abrir Pasta
         btn_open_folder = QPushButton("📁 Abrir Pasta no Windows")
         btn_open_folder.setCursor(Qt.PointingHandCursor)
         btn_open_folder.setStyleSheet("""
@@ -117,6 +159,7 @@ class LibraryPage(BasePage):
 
         header_layout.addLayout(header_box)
         header_layout.addStretch()
+        header_layout.addWidget(btn_clear)
         header_layout.addWidget(btn_open_folder)
         self.cards_layout.addLayout(header_layout)
 
@@ -137,7 +180,7 @@ class LibraryPage(BasePage):
         self.search_input.textChanged.connect(self._filter_items)
         self.cards_layout.addWidget(self.search_input)
 
-        # 3. Estado Vazio Inicial
+        # 3. Estado Vazio
         self.empty_card = QFrame()
         self.empty_card.setStyleSheet("""
             QFrame {
@@ -169,7 +212,7 @@ class LibraryPage(BasePage):
 
         self.cards_layout.addWidget(self.empty_card)
 
-        # Container dinâmico para os cards
+        # Container dinâmico
         self.items_container = QWidget()
         self.items_container.setStyleSheet("background: transparent;")
         self.items_layout = QVBoxLayout(self.items_container)
@@ -239,7 +282,7 @@ class LibraryPage(BasePage):
             info_box.addWidget(sub_lbl)
             card_layout.addLayout(info_box, stretch=1)
 
-            # Botões de Ação
+            # Botões de Ação com callbacks isolados
             actions_layout = QHBoxLayout()
             actions_layout.setSpacing(8)
 
@@ -257,7 +300,7 @@ class LibraryPage(BasePage):
                 }
                 QPushButton:hover { background-color: #4F46E5; }
             """)
-            btn_play.clicked.connect(lambda checked=False, itm=item: self._open_file(itm))
+            btn_play.clicked.connect(self._make_play_callback(item))
 
             btn_folder = QPushButton("📂 Pasta")
             btn_folder.setCursor(Qt.PointingHandCursor)
@@ -273,25 +316,52 @@ class LibraryPage(BasePage):
                 }
                 QPushButton:hover { background-color: #3F3F46; color: #FFFFFF; }
             """)
-            btn_folder.clicked.connect(lambda checked=False, itm=item: self._open_folder_of_file(itm))
+            btn_folder.clicked.connect(self._make_folder_callback(item))
+
+            btn_del = QPushButton("🗑️")
+            btn_del.setToolTip("Remover esta mídia da biblioteca")
+            btn_del.setCursor(Qt.PointingHandCursor)
+            btn_del.setStyleSheet("""
+                QPushButton {
+                    background-color: #27272A;
+                    color: #EF4444;
+                    border: 1px solid #3F3F46;
+                    padding: 6px 10px;
+                    border-radius: 6px;
+                    font-size: 12px;
+                }
+                QPushButton:hover {
+                    background-color: #7F1D1D;
+                    color: #FFFFFF;
+                    border-color: #EF4444;
+                }
+            """)
+            btn_del.clicked.connect(self._make_del_callback(item))
 
             actions_layout.addWidget(btn_play)
             actions_layout.addWidget(btn_folder)
+            actions_layout.addWidget(btn_del)
 
             card_layout.addLayout(actions_layout)
             self.items_layout.addWidget(card)
 
+    def _make_play_callback(self, item: dict):
+        return lambda: self._open_file(item)
+
+    def _make_folder_callback(self, item: dict):
+        return lambda: self._open_folder_of_file(item)
+
+    def _make_del_callback(self, item: dict):
+        return lambda: self._delete_single_item(item)
+
     def _open_file(self, item: dict) -> None:
-        """Localiza o arquivo de mídia exato e executa no player padrão."""
         path = item.get("file_path") or self.default_dir
         title = item.get("title", "")
 
-        # 1. Se for o arquivo exato e existir, abre direto no tocador!
         if os.path.exists(path) and os.path.isfile(path):
             os.startfile(path)
             return
 
-        # 2. Se o caminho for a pasta, procura o arquivo da mídia lá dentro
         target_dir = path if os.path.isdir(path) else self.default_dir
         if os.path.exists(target_dir):
             files = [
@@ -299,29 +369,63 @@ class LibraryPage(BasePage):
                 if os.path.isfile(os.path.join(target_dir, f))
             ]
 
-            # Busca por correspondência no título
             for f in files:
                 if title and title.lower()[:15] in os.path.basename(f).lower():
                     os.startfile(f)
                     return
 
-            # Se não achou pelo título exato, executa o arquivo mais recente da pasta
             if files:
                 latest_file = max(files, key=os.path.getmtime)
                 os.startfile(latest_file)
                 return
 
-        # Fallback: se estiver tudo vazio
         self._on_open_main_folder()
 
     def _open_folder_of_file(self, item: dict) -> None:
-        """Abre a pasta contendo o arquivo no File Explorer."""
         path = item.get("file_path") or self.default_dir
         if os.path.exists(path):
             target_dir = os.path.dirname(path) if os.path.isfile(path) else path
             os.startfile(target_dir)
         else:
             self._on_open_main_folder()
+
+    def _delete_single_item(self, item: dict) -> None:
+        """Deleta o item do banco de dados SQLite e recarrega a página."""
+        conn = self._get_db_connection()
+        if conn:
+            try:
+                cursor = conn.cursor()
+                task_id = item.get("task_id")
+                item_id = item.get("id")
+                title = item.get("title")
+                url = item.get("url")
+
+                cursor.execute("""
+                    DELETE FROM downloads 
+                    WHERE (task_id IS NOT NULL AND task_id = ?)
+                       OR (id IS NOT NULL AND id = ?)
+                       OR (title = ? AND url = ?)
+                """, (task_id, item_id, title, url))
+                conn.commit()
+                conn.close()
+            except Exception as e:
+                print(f"⚠️ Erro ao deletar do SQLite: {e}")
+
+        self.refresh_library()
+
+    def _on_clear_library(self) -> None:
+        """Limpa todos os registros de downloads do banco de dados SQLite."""
+        conn = self._get_db_connection()
+        if conn:
+            try:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM downloads")
+                conn.commit()
+                conn.close()
+            except Exception as e:
+                print(f"⚠️ Erro ao limpar biblioteca no SQLite: {e}")
+
+        self.refresh_library()
 
     def _filter_items(self, text: str) -> None:
         query = text.strip().lower()

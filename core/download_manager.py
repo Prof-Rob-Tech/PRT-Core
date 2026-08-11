@@ -1,206 +1,180 @@
 """
 ===========================================================
-PRT Labs - Core / Download Manager
-Classes: TaskStatus, DownloadTask, DownloadWorker, DownloadManager
+PRT Labs - Core
+Class: DownloadManager / DownloadTask
 
 Description:
-    Gerenciador assíncrono de downloads em segundo plano.
-    Utiliza QThread e Signals para não congelar a UI.
+    Gerenciador global de fila de downloads assíncronos com PySide6 QThread,
+    suporte a cancelamento, seleção de qualidade e múltiplos status.
 ===========================================================
 """
 
 import uuid
-from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, List, Optional
+from dataclasses import dataclass
+from typing import Dict, Optional, List, Callable
 from PySide6.QtCore import QObject, QThread, Signal, Slot
 
 
 class TaskStatus(Enum):
-    PENDING = "Pendente"
-    DOWNLOADING = "Baixando"
-    PAUSED = "Pausado"
-    FINISHED = "Concluído"
-    FAILED = "Erro"
+    QUEUED = "Aguardando..."
+    DOWNLOADING = "Baixando..."
+    COMPLETED = "Concluído"
+    FAILED = "Erro no Download"
     CANCELLED = "Cancelado"
 
 
 @dataclass
 class DownloadTask:
-    """Modelo de dados de uma tarefa de download."""
     task_id: str
     url: str
-    title: str
-    platform: str
-    save_path: str
-    status: TaskStatus = TaskStatus.PENDING
+    title: str = "Aguardando..."
+    platform: str = "web"
     progress: int = 0
-    speed: str = "0 MB/s"
+    speed: str = "0 KB/s"
     eta: str = "--:--"
     file_size: str = "-- MB"
-    error_msg: str = ""
+    format_type: str = "video"  # "video" ou "audio"
+    quality: str = "best"        # "best", "1080p", "720p", "audio"
+    status: TaskStatus = TaskStatus.QUEUED
+    save_path: str = ""
+    is_cancelled: bool = False
 
 
 class DownloadWorker(QThread):
-    """Worker que executa o download em segundo plano fora da thread principal de UI."""
+    """Worker Thread responsável por executar a extração em background sem travar a UI."""
 
-    progress_signal = Signal(str, int, str, str)  # (task_id, progress_pct, speed, eta)
-    status_signal = Signal(str, str)              # (task_id, status_str)
-    finished_signal = Signal(str, str)            # (task_id, final_file_path)
-    error_signal = Signal(str, str)               # (task_id, error_message)
+    task_started = Signal(object)
+    task_updated = Signal(object)
+    task_completed = Signal(object)
+    task_failed = Signal(object, str)
 
-    def __init__(self, task: DownloadTask, download_func=None, parent=None) -> None:
+    def __init__(self, task: DownloadTask, engine: Optional[Callable] = None, parent=None) -> None:
         super().__init__(parent)
         self.task = task
-        self.download_func = download_func
-        self._is_cancelled = False
-
-    def cancel(self) -> None:
-        self._is_cancelled = True
+        self.engine = engine
 
     def run(self) -> None:
-        """Execução paralela na Thread secundária."""
-        self.status_signal.emit(self.task.task_id, TaskStatus.DOWNLOADING.value)
+        if self.task.is_cancelled:
+            self.task.status = TaskStatus.CANCELLED
+            self.task_failed.emit(self.task, "Download cancelado pelo usuário.")
+            return
+
+        self.task.status = TaskStatus.DOWNLOADING
+        self.task_started.emit(self.task)
 
         try:
-            if self.download_func:
-                # Executa a função de extração/download (hook do yt-dlp / extractor_service)
-                self.download_func(self.task, self._progress_hook)
+            # Se um motor específico foi registrado, utiliza ele, senão faz fallback para o extractor_service
+            if self.engine:
+                extractor_func = self.engine
             else:
-                # Callback genérico para fallback/testes
-                self.finished_signal.emit(self.task.task_id, self.task.save_path)
-                return
-
-            if not self._is_cancelled:
-                self.finished_signal.emit(self.task.task_id, self.task.save_path)
-
-        except Exception as e:
-            self.error_signal.emit(self.task.task_id, str(e))
-
-    def _progress_hook(self, pct: int, speed: str, eta: str, file_size: str = "-- MB") -> None:
-        """Callback invocado pelos motores de extração durante o progresso."""
-        if not self._is_cancelled:
-            self.task.progress = pct
-            self.task.speed = speed
-            self.task.eta = eta
-            self.task.file_size = file_size  # 👈 Atualiza o tamanho na task
+                from services.extractor_service import extractor_service
+                extractor_func = extractor_service.download_media_task
             
-            # Se o seu sinal envia a task ou os atributos:
-            self.progress_signal.emit(self.task.task_id, pct, speed, eta)
+            def progress_callback(pct: int, speed: str, eta: str, size: str = "-- MB"):
+                if self.task.is_cancelled:
+                    raise RuntimeError("CANCELLED_BY_USER")
+                self.task.progress = pct
+                self.task.speed = speed
+                self.task.eta = eta
+                self.task.file_size = size
+                self.task_updated.emit(self.task)
+
+            final_file = extractor_func(self.task, progress_callback)
+            
+            if self.task.is_cancelled:
+                self.task.status = TaskStatus.CANCELLED
+                self.task_failed.emit(self.task, "Download cancelado pelo usuário.")
+            else:
+                self.task.save_path = final_file
+                self.task.status = TaskStatus.COMPLETED
+                self.task.progress = 100
+                self.task_completed.emit(self.task)
+
+        except RuntimeError as re:
+            if "CANCELLED_BY_USER" in str(re):
+                self.task.status = TaskStatus.CANCELLED
+                self.task_failed.emit(self.task, "Download cancelado pelo usuário.")
+            else:
+                self.task.status = TaskStatus.FAILED
+                self.task_failed.emit(self.task, str(re))
+        except Exception as e:
+            self.task.status = TaskStatus.FAILED
+            self.task_failed.emit(self.task, str(e))
 
 
 class DownloadManager(QObject):
-    """Gerenciador central de fila e controle de downloads (Singleton)."""
+    """Gerenciador central de downloads do PRT Nexus."""
 
-    # Sinais globais retransmitidos para as telas (DownloadsPage, Dashboard, etc.)
     task_added = Signal(object)
     task_updated = Signal(object)
     task_completed = Signal(object)
     task_failed = Signal(object, str)
 
-    _instance = None
-
-    def __new__(cls, *args, **kwargs):
-        if cls._instance is None:
-            cls._instance = super(DownloadManager, cls).__new__(cls)
-        return cls._instance
-
     def __init__(self, parent=None) -> None:
-        if hasattr(self, "_initialized") and self._initialized:
-            return
         super().__init__(parent)
-        self._initialized = True
-
         self.tasks: Dict[str, DownloadTask] = {}
         self.workers: Dict[str, DownloadWorker] = {}
-        self.max_concurrent_downloads: int = 3
-        self.download_engine_func = None  # Receberá a função do extractor_service
+        self.engine: Optional[Callable] = None
 
-    def register_engine(self, engine_func) -> None:
-        """Registra a função do motor de extração (ex: ExtractorService)."""
-        self.download_engine_func = engine_func
+    def register_engine(self, engine_func: Callable) -> None:
+        """Registra o motor de extração (chamado pelo application.py)."""
+        self.engine = engine_func
 
-    def add_download(self, url: str, title: str, platform: str = "geral", save_path: str = "") -> DownloadTask:
-        """Adiciona uma nova tarefa na fila."""
+    def add_download(
+        self,
+        url: str,
+        title: str = "Nova Mídia",
+        platform: str = "web",
+        save_path: str = "",
+        format_type: str = "video",
+        quality: str = "best"
+    ) -> DownloadTask:
         task_id = str(uuid.uuid4())[:8]
         task = DownloadTask(
             task_id=task_id,
             url=url,
-            title=title if title else "Mídia sem título",
+            title=title,
             platform=platform,
-            save_path=save_path
+            save_path=save_path,
+            format_type=format_type,
+            quality=quality
         )
-
         self.tasks[task_id] = task
         self.task_added.emit(task)
-        self._process_queue()
+
+        # Inicia worker assíncrono
+        worker = DownloadWorker(task, engine=self.engine)
+        worker.task_updated.connect(self.task_updated.emit)
+        worker.task_completed.connect(self._on_worker_completed)
+        worker.task_failed.connect(self._on_worker_failed)
+
+        self.workers[task_id] = worker
+        worker.start()
         return task
 
-    def _process_queue(self) -> None:
-        """Gerencia os slots da fila e inicia os próximos da lista."""
-        active_workers = sum(1 for w in self.workers.values() if w.isRunning())
-        if active_workers >= self.max_concurrent_downloads:
-            return
-
-        for task_id, task in self.tasks.items():
-            if task.status == TaskStatus.PENDING and task_id not in self.workers:
-                worker = DownloadWorker(task, download_func=self.download_engine_func)
-                worker.progress_signal.connect(self._on_worker_progress)
-                worker.status_signal.connect(self._on_worker_status)
-                worker.finished_signal.connect(self._on_worker_finished)
-                worker.error_signal.connect(self._on_worker_error)
-
-                self.workers[task_id] = worker
-                worker.start()
-                break
-
-    @Slot(str, int, str, str)
-    def _on_worker_progress(self, task_id: str, progress: int, speed: str, eta: str) -> None:
+    def cancel_download(self, task_id: str) -> bool:
+        """Sinaliza e cancela o download ativo."""
         if task_id in self.tasks:
             task = self.tasks[task_id]
-            task.progress = progress
-            task.speed = speed
-            task.eta = eta
+            task.is_cancelled = True
+            task.status = TaskStatus.CANCELLED
             self.task_updated.emit(task)
+            return True
+        return False
 
-    @Slot(str, str)
-    def _on_worker_status(self, task_id: str, status_str: str) -> None:
-        if task_id in self.tasks:
-            task = self.tasks[task_id]
-            for s in TaskStatus:
-                if s.value == status_str:
-                    task.status = s
-                    break
-            self.task_updated.emit(task)
+    @Slot(object)
+    def _on_worker_completed(self, task: DownloadTask) -> None:
+        if task.task_id in self.workers:
+            del self.workers[task.task_id]
+        self.task_completed.emit(task)
 
-    @Slot(str, str)
-    def _on_worker_finished(self, task_id: str, file_path: str) -> None:
-        if task_id in self.tasks:
-            task = self.tasks[task_id]
-            task.status = TaskStatus.FINISHED
-            task.progress = 100
-            task.save_path = file_path
-            self.task_completed.emit(task)
-
-        self._cleanup_worker(task_id)
-        self._process_queue()
-
-    @Slot(str, str)
-    def _on_worker_error(self, task_id: str, error_msg: str) -> None:
-        if task_id in self.tasks:
-            task = self.tasks[task_id]
-            task.status = TaskStatus.FAILED
-            task.error_msg = error_msg
-            self.task_failed.emit(task, error_msg)
-
-        self._cleanup_worker(task_id)
-        self._process_queue()
-
-    def _cleanup_worker(self, task_id: str) -> None:
-        if task_id in self.workers:
-            self.workers[task_id].deleteLater()
-            del self.workers[task_id]
+    @Slot(object, str)
+    def _on_worker_failed(self, task: DownloadTask, error_msg: str) -> None:
+        if task.task_id in self.workers:
+            del self.workers[task.task_id]
+        self.task_failed.emit(task, error_msg)
 
 
-# Instância global do Gerenciador de Downloads
+# Instância Singleton
 download_manager = DownloadManager()

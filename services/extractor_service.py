@@ -4,12 +4,13 @@ PRT Labs - Services
 Class: ExtractorService / extractor_service
 
 Description:
-    Serviço de extração de mídias utilitário baseado em yt-dlp.
-    Extrai vídeos/áudios, títulos reais, progresso e tamanhos.
+    Serviço de extração avançado via yt-dlp com suporte a cancelamento,
+    limpeza de temporários e seleção de qualidade/áudio.
 ===========================================================
 """
 
 import os
+import glob
 from typing import Callable, Optional
 
 try:
@@ -32,8 +33,17 @@ class ExtractorService:
 
         os.makedirs(self.download_dir, exist_ok=True)
 
+    def _cleanup_temp_files(self, target_dir: str) -> None:
+        """Remove arquivos temporários (.part, .ytdl) em caso de cancelamento."""
+        try:
+            temp_files = glob.glob(os.path.join(target_dir, "*.part")) + glob.glob(os.path.join(target_dir, "*.ytdl"))
+            for temp_f in temp_files:
+                if os.path.exists(temp_f):
+                    os.remove(temp_f)
+        except Exception as e:
+            print(f"⚠️ Erro ao limpar arquivos temporários: {e}")
+
     def download_media_task(self, task, progress_hook: Callable) -> str:
-        """Executa o download de mídias e atualiza métricas em tempo real."""
         if not HAS_YTDLP:
             raise RuntimeError("A biblioteca 'yt-dlp' não está instalada no ambiente.")
 
@@ -48,7 +58,11 @@ class ExtractorService:
             return f"{bytes_val / (1024 * 1024):.1f} MB"
 
         def _yt_dlp_progress_callback(d: dict):
-            # 1. Atualiza o Título Real do Vídeo
+            # 1. Checa interrupção/cancelamento
+            if getattr(task, "is_cancelled", False):
+                raise RuntimeError("CANCELLED_BY_USER")
+
+            # 2. Captura o título real
             info = d.get('info_dict', {})
             real_title = info.get('title') or info.get('fulltitle')
             if real_title:
@@ -58,13 +72,9 @@ class ExtractorService:
                 downloaded = d.get('downloaded_bytes', 0)
                 total = d.get('total_bytes') or d.get('total_bytes_estimate', 0)
 
-                # Porcentagem
                 pct = int((downloaded / total) * 100) if total > 0 else 0
-
-                # Formata Tamanho (Ex: 45.2 MB / 312.0 MB)
                 size_str = f"{_fmt_size(downloaded)} / {_fmt_size(total)}"
 
-                # Velocidade
                 speed_bytes = d.get('speed') or 0
                 if speed_bytes > 1024 * 1024:
                     speed_str = f"{speed_bytes / (1024 * 1024):.1f} MB/s"
@@ -73,7 +83,6 @@ class ExtractorService:
                 else:
                     speed_str = "0 KB/s"
 
-                # ETA
                 eta_sec = d.get('eta')
                 if eta_sec is not None:
                     m, s = divmod(int(eta_sec), 60)
@@ -81,11 +90,19 @@ class ExtractorService:
                 else:
                     eta_str = "--:--"
 
-                # Envia atualização
                 try:
                     progress_hook(pct, speed_str, eta_str, size_str)
                 except TypeError:
                     progress_hook(pct, speed_str, eta_str)
+
+        # Seleção Dinâmica de Qualidade e Formato
+        format_spec = 'b[ext=mp4]/b/best'
+        if getattr(task, 'format_type', 'video') == 'audio':
+            format_spec = 'bestaudio/best'
+        elif getattr(task, 'quality', 'best') == '1080p':
+            format_spec = 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080]'
+        elif getattr(task, 'quality', 'best') == '720p':
+            format_spec = 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720]'
 
         ydl_opts = {
             'outtmpl': out_template,
@@ -93,14 +110,21 @@ class ExtractorService:
             'quiet': True,
             'no_warnings': True,
             'noplaylist': True,
-            'format': 'b[ext=mp4]/b/best',
+            'format': format_spec,
             'concurrent_fragment_downloads': 4,
         }
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(task.url, download=True)
-            filename = ydl.prepare_filename(info)
-            return filename
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(task.url, download=True)
+                filename = ydl.prepare_filename(info)
+                return filename
+        except Exception as e:
+            # Se for cancelamento, limpa resíduos temporários do disco
+            if "CANCELLED_BY_USER" in str(e) or getattr(task, "is_cancelled", False):
+                self._cleanup_temp_files(target_dir)
+                raise RuntimeError("CANCELLED_BY_USER")
+            raise e
 
 
 # Instância Singleton

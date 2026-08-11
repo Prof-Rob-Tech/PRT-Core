@@ -4,17 +4,17 @@ PRT Labs - UI / Pages
 Class: ConnectorPage / PRTConnectorPage
 
 Description:
-    Página genérica para conectores com seletor de pasta de destino
-    integrada ao DownloadManager e DatabaseManager.
+    Página genérica para conectores com seletor de pasta de destino,
+    seleção de qualidade e notificação visual de envio para downloads.
 ===========================================================
 """
 
 import os
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QLineEdit, QTableWidget, QTableWidgetItem, QHeaderView,
-    QScrollArea, QFileDialog
+    QScrollArea, QFileDialog, QComboBox
 )
 
 from core.download_manager import download_manager
@@ -22,7 +22,7 @@ from database.db_manager import db_manager
 
 
 class ConnectorPage(QWidget):
-    """Página de Conector com escolha de pasta personalizada."""
+    """Página de Conector com escolha de pasta, qualidade e notificação de envio."""
 
     def __init__(self, platform_key: str = "conector", connector_name: str = None, parent=None, *args, **kwargs) -> None:
         super().__init__(parent)
@@ -98,7 +98,7 @@ class ConnectorPage(QWidget):
         header_box.addWidget(subtitle)
         layout.addLayout(header_box)
 
-        # 2. Card de Captura por URL + Seletor de Pasta
+        # 2. Card de Captura por URL + Seletor de Pasta e Qualidade
         capture_card = QFrame()
         capture_card.setObjectName("captureCard")
         capture_card.setStyleSheet("""
@@ -117,7 +117,7 @@ class ConnectorPage(QWidget):
         card_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #E4E4E7;")
         capture_layout.addWidget(card_title)
 
-        # Campo de Input da URL
+        # Input da URL + Seletor de Qualidade + Botão
         input_layout = QHBoxLayout()
         input_layout.setSpacing(10)
 
@@ -135,7 +135,31 @@ class ConnectorPage(QWidget):
             QLineEdit:focus { border-color: #6366F1; }
         """)
         self.url_input.returnPressed.connect(self._on_analisar_url)
-        input_layout.addWidget(self.url_input)
+        input_layout.addWidget(self.url_input, stretch=2)
+
+        # Dropdown de Qualidade / Formato
+        self.quality_combo = QComboBox()
+        self.quality_combo.addItem("🎬 Vídeo (Melhor Qualidade)", "best")
+        self.quality_combo.addItem("🎥 Vídeo (1080p Full HD)", "1080p")
+        self.quality_combo.addItem("📺 Vídeo (720p HD)", "720p")
+        self.quality_combo.addItem("🎵 Apenas Áudio (MP3/M4A)", "audio")
+        self.quality_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #09090B;
+                color: #FFFFFF;
+                border: 1px solid #27272A;
+                border-radius: 6px;
+                padding: 8px 12px;
+                font-size: 12px;
+            }
+            QComboBox::drop-down { border: none; }
+            QComboBox QAbstractItemView {
+                background-color: #18181B;
+                color: #FFFFFF;
+                selection-background-color: #6366F1;
+            }
+        """)
+        input_layout.addWidget(self.quality_combo)
 
         btn_fetch = QPushButton("Analisar Mídia")
         btn_fetch.setCursor(Qt.PointingHandCursor)
@@ -198,6 +222,12 @@ class ConnectorPage(QWidget):
         folder_layout.addWidget(btn_browse)
 
         capture_layout.addLayout(folder_layout)
+
+        # Label de Notificação Visual / Feedback
+        self.feedback_label = QLabel("")
+        self.feedback_label.setStyleSheet("font-size: 12px; font-weight: 600; color: #10B981; background: transparent;")
+        capture_layout.addWidget(self.feedback_label)
+
         layout.addWidget(capture_card)
 
         # 3. Tabela de Mídias Reais do Banco
@@ -266,7 +296,6 @@ class ConnectorPage(QWidget):
         self.refresh_table_data()
 
     def _on_select_folder(self) -> None:
-        """Abre a caixa de diálogo para escolher a pasta de destino."""
         folder = QFileDialog.getExistingDirectory(self, "Selecionar Pasta de Destino", self.folder_input.text())
         if folder:
             self.folder_input.setText(folder)
@@ -292,14 +321,27 @@ class ConnectorPage(QWidget):
     def _on_analisar_url(self, *args) -> None:
         url = self.url_input.text().strip()
         save_path = self.folder_input.text().strip()
+        selected_quality = self.quality_combo.currentData()
+
+        format_type = "audio" if selected_quality == "audio" else "video"
+
         if url:
             download_manager.add_download(
                 url=url,
                 title=f"Mídia do {self.display_name}",
                 platform=self.platform_key,
-                save_path=save_path
+                save_path=save_path,
+                format_type=format_type,
+                quality=selected_quality
             )
             self.url_input.clear()
+            self.feedback_label.setStyleSheet("font-size: 12px; font-weight: 600; color: #10B981; background: transparent;")
+            self.feedback_label.setText("🚀 Mídia enviada para a Fila de Downloads com sucesso!")
+            QTimer.singleShot(4000, lambda: self.feedback_label.setText(""))
+        else:
+            self.feedback_label.setStyleSheet("font-size: 12px; font-weight: 600; color: #EF4444; background: transparent;")
+            self.feedback_label.setText("⚠️ Por favor, insira um link válido antes de analisar.")
+            QTimer.singleShot(4000, lambda: self.feedback_label.setText(""))
 
     def on_show(self) -> None:
         self.refresh_table_data()

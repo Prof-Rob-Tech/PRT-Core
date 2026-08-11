@@ -4,7 +4,8 @@ PRT Labs - UI / Pages
 Class: DownloadsPage / PRTDownloadsPage
 
 Description:
-    Gerenciador visual de Downloads com suporte a abertura de pasta.
+    Gerenciador visual de Downloads com suporte a cancelamento de tarefas
+    e botão para limpar downloads finalizados/cancelados.
 ===========================================================
 """
 
@@ -21,7 +22,7 @@ except Exception:
     class BasePage(QWidget):
         pass
 
-from core.download_manager import download_manager
+from core.download_manager import download_manager, TaskStatus
 from database.db_manager import db_manager
 
 
@@ -84,7 +85,8 @@ class DownloadsPage(BasePage):
         self.cards_layout.setContentsMargins(24, 24, 24, 24)
         self.cards_layout.setSpacing(16)
 
-        # Header
+        # Header + Botão Limpar
+        header_layout = QHBoxLayout()
         header_box = QVBoxLayout()
         lbl_title = QLabel("⬇️ Fila de Downloads")
         lbl_title.setStyleSheet("font-size: 24px; font-weight: bold; color: #FFFFFF; border: none;")
@@ -93,7 +95,31 @@ class DownloadsPage(BasePage):
         header_box.addWidget(lbl_title)
         header_box.addWidget(lbl_subtitle)
 
-        self.cards_layout.addLayout(header_box)
+        btn_clear = QPushButton("🗑️ Limpar Finalizados")
+        btn_clear.setCursor(Qt.PointingHandCursor)
+        btn_clear.setStyleSheet("""
+            QPushButton {
+                background-color: #27272A;
+                color: #EF4444;
+                border: 1px solid #3F3F46;
+                padding: 8px 14px;
+                border-radius: 8px;
+                font-weight: 600;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #7F1D1D;
+                color: #FFFFFF;
+                border-color: #EF4444;
+            }
+        """)
+        btn_clear.clicked.connect(self._on_clear_finished)
+
+        header_layout.addLayout(header_box)
+        header_layout.addStretch()
+        header_layout.addWidget(btn_clear)
+
+        self.cards_layout.addLayout(header_layout)
 
         # Estado Vazio
         self.empty_card = QFrame()
@@ -137,6 +163,23 @@ class DownloadsPage(BasePage):
         download_manager.task_completed.connect(self._on_task_completed)
         download_manager.task_failed.connect(self._on_task_failed)
 
+    def _on_clear_finished(self) -> None:
+        """Limpa da visualização todas as mídias concluídas, canceladas ou com erro."""
+        finished_ids = []
+        for tid, card in list(self.cards.items()):
+            task = download_manager.tasks.get(tid)
+            if task and task.status in [TaskStatus.COMPLETED, TaskStatus.CANCELLED, TaskStatus.FAILED]:
+                finished_ids.append(tid)
+
+        for tid in finished_ids:
+            card = self.cards.pop(tid, None)
+            if card:
+                card.setParent(None)
+                card.deleteLater()
+
+        if not self.cards:
+            self.empty_card.setVisible(True)
+
     @Slot(object)
     def _on_task_added(self, task) -> None:
         self.empty_card.setVisible(False)
@@ -167,6 +210,25 @@ class DownloadsPage(BasePage):
         lbl_status.setObjectName("lbl_status")
         lbl_status.setStyleSheet("font-size: 12px; font-weight: 600; color: #6366F1;")
 
+        # Botão Cancelar
+        btn_cancel = QPushButton("❌ Cancelar")
+        btn_cancel.setObjectName("btn_cancel")
+        btn_cancel.setCursor(Qt.PointingHandCursor)
+        btn_cancel.setStyleSheet("""
+            QPushButton {
+                background-color: #27272A;
+                color: #EF4444;
+                border: 1px solid #3F3F46;
+                padding: 4px 10px;
+                border-radius: 6px;
+                font-size: 11px;
+                font-weight: 600;
+            }
+            QPushButton:hover { background-color: #7F1D1D; color: #FFFFFF; }
+        """)
+        btn_cancel.clicked.connect(lambda _, tid=task.task_id: download_manager.cancel_download(tid))
+
+        # Botão Abrir Pasta
         btn_folder = QPushButton("📂 Abrir Pasta")
         btn_folder.setObjectName("btn_folder")
         btn_folder.setVisible(False)
@@ -183,12 +245,12 @@ class DownloadsPage(BasePage):
             }
             QPushButton:hover { background-color: #3F3F46; color: #FFFFFF; }
         """)
-        
         save_dir = task.save_path if task.save_path else os.path.join(os.path.expanduser("~"), "Downloads", "PRT_Nexus")
         btn_folder.clicked.connect(lambda: os.startfile(save_dir) if os.path.exists(save_dir) else None)
 
         top_layout.addWidget(lbl_title)
         top_layout.addStretch()
+        top_layout.addWidget(btn_cancel)
         top_layout.addWidget(btn_folder)
         top_layout.addWidget(lbl_status)
         card_layout.addLayout(top_layout)
@@ -264,11 +326,15 @@ class DownloadsPage(BasePage):
         if task.task_id in self.cards:
             card = self.cards[task.task_id]
             lbl_status = card.findChild(QLabel, "lbl_status")
+            btn_cancel = card.findChild(QPushButton, "btn_cancel")
             btn_folder = card.findChild(QPushButton, "btn_folder")
 
             if lbl_status:
                 lbl_status.setText("✅ Concluído")
                 lbl_status.setStyleSheet("font-size: 12px; font-weight: 600; color: #10B981;")
+
+            if btn_cancel:
+                btn_cancel.setVisible(False)
 
             if btn_folder:
                 btn_folder.setVisible(True)
@@ -289,14 +355,25 @@ class DownloadsPage(BasePage):
             card = self.cards[task.task_id]
             lbl_status = card.findChild(QLabel, "lbl_status")
             lbl_info = card.findChild(QLabel, "lbl_info")
+            btn_cancel = card.findChild(QPushButton, "btn_cancel")
 
-            if lbl_status:
-                lbl_status.setText("❌ Erro no Download")
-                lbl_status.setStyleSheet("font-size: 12px; font-weight: 600; color: #EF4444;")
+            if btn_cancel:
+                btn_cancel.setVisible(False)
 
-            if lbl_info:
-                lbl_info.setText(f"Detalhe: {error_msg[:90]}...")
-                lbl_info.setStyleSheet("font-size: 11px; color: #EF4444;")
+            if "cancelado" in error_msg.lower() or getattr(task, "is_cancelled", False):
+                if lbl_status:
+                    lbl_status.setText("🚫 Cancelado")
+                    lbl_status.setStyleSheet("font-size: 12px; font-weight: 600; color: #F59E0B;")
+                if lbl_info:
+                    lbl_info.setText("Download cancelado e arquivos temporários removidos.")
+                    lbl_info.setStyleSheet("font-size: 11px; color: #F59E0B;")
+            else:
+                if lbl_status:
+                    lbl_status.setText("❌ Erro no Download")
+                    lbl_status.setStyleSheet("font-size: 12px; font-weight: 600; color: #EF4444;")
+                if lbl_info:
+                    lbl_info.setText(f"Detalhe: {error_msg[:90]}...")
+                    lbl_info.setStyleSheet("font-size: 11px; color: #EF4444;")
 
     def on_show(self) -> None:
         pass

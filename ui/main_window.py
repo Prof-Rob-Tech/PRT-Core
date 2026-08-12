@@ -4,18 +4,16 @@ PRT Labs - UI / Main Window
 Class: PRTMainWindow / MainWindow
 
 Description:
-    Janela Principal do PRT Nexus com gerenciamento adaptativo
-    e suporte completo ao conector do TikTok.
+    Janela Principal do PRT Nexus com suporte global completo 
+    a temas (Escuro, Claro, Cyber).
 ===========================================================
 """
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QStackedWidget
+from PySide6.QtCore import QSettings, Qt
+from PySide6.QtWidgets import QHBoxLayout, QMainWindow, QStackedWidget, QWidget
 
-# Importa a Barra Lateral
 from ui.widgets.sidebar import PRTSidebar
 
-# Imports Seguros das Páginas
 try:
     from ui.pages.dashboard_page import DashboardPage
 except Exception:
@@ -72,6 +70,217 @@ except Exception:
     PlaceholderPage = None
 
 
+THEME_STYLES = {
+    "dark": """
+        QMainWindow, QWidget#centralWidget, QStackedWidget {
+            background-color: #09090B;
+            color: #F4F4F5;
+            font-family: 'Segoe UI', sans-serif;
+        }
+        PRTSidebar {
+            background-color: #121215;
+            border-right: 1px solid #27272A;
+            color: #A1A1AA;
+        }
+        PRTSidebar QPushButton {
+            text-align: left;
+            padding: 8px 12px;
+            border-radius: 6px;
+            background-color: transparent;
+            color: #A1A1AA;
+            border: none;
+            font-weight: 500;
+        }
+        PRTSidebar QPushButton:hover {
+            background-color: #18181B;
+            color: #FFFFFF;
+        }
+        PRTSidebar QPushButton:checked {
+            background-color: #27272A;
+            color: #FFFFFF;
+            font-weight: bold;
+        }
+        PRTSidebar QLabel#sectionHeader { color: #52525B; }
+        PRTSidebar QLabel#subText { color: #71717A; }
+
+        QFrame#cardFrame {
+            background-color: #141416;
+            border: 1px solid #26262B;
+            border-radius: 8px;
+        }
+        QLabel { color: #F4F4F5; }
+        QLineEdit, QComboBox {
+            background-color: #18181B;
+            color: #FFFFFF;
+            border: 1px solid #27272A;
+            border-radius: 6px;
+            padding: 8px 12px;
+        }
+        QPushButton {
+            background-color: #27272A;
+            color: #FFFFFF;
+            border: 1px solid #3F3F46;
+            border-radius: 6px;
+            padding: 8px 14px;
+            font-weight: 500;
+        }
+        QPushButton:hover { background-color: #3F3F46; }
+        QTableWidget {
+            background-color: #141416;
+            color: #F4F4F5;
+            gridline-color: #27272A;
+            border: 1px solid #27272A;
+            border-radius: 6px;
+        }
+        QHeaderView::section {
+            background-color: #18181B;
+            color: #A1A1AA;
+            border: none;
+            padding: 6px;
+        }
+    """,
+    "light": """
+        QMainWindow, QWidget#centralWidget, QStackedWidget {
+            background-color: #F8FAFC;
+            color: #0F172A;
+            font-family: 'Segoe UI', sans-serif;
+        }
+        PRTSidebar {
+            background-color: #FFFFFF;
+            border-right: 1px solid #E2E8F0;
+            color: #475569;
+        }
+        PRTSidebar QPushButton {
+            text-align: left;
+            padding: 8px 12px;
+            border-radius: 6px;
+            background-color: transparent;
+            color: #475569;
+            border: none;
+            font-weight: 500;
+        }
+        PRTSidebar QPushButton:hover {
+            background-color: #F1F5F9;
+            color: #0F172A;
+        }
+        PRTSidebar QPushButton:checked {
+            background-color: #E2E8F0;
+            color: #0F172A;
+            font-weight: bold;
+        }
+        PRTSidebar QLabel#sectionHeader { color: #94A3B8; }
+        PRTSidebar QLabel#subText { color: #64748B; }
+
+        QFrame#cardFrame {
+            background-color: #FFFFFF;
+            border: 1px solid #E2E8F0;
+            border-radius: 8px;
+        }
+        QLabel { color: #0F172A; }
+        QLineEdit, QComboBox {
+            background-color: #FFFFFF;
+            color: #0F172A;
+            border: 1px solid #CBD5E1;
+            border-radius: 6px;
+            padding: 8px 12px;
+        }
+        QPushButton {
+            background-color: #E2E8F0;
+            color: #0F172A;
+            border: 1px solid #CBD5E1;
+            border-radius: 6px;
+            padding: 8px 14px;
+            font-weight: 500;
+        }
+        QPushButton:hover {
+            background-color: #CBD5E1;
+            color: #0F172A;
+        }
+        QTableWidget {
+            background-color: #FFFFFF;
+            color: #0F172A;
+            gridline-color: #E2E8F0;
+            border: 1px solid #E2E8F0;
+            border-radius: 6px;
+        }
+        QHeaderView::section {
+            background-color: #F1F5F9;
+            color: #475569;
+            border: none;
+            padding: 6px;
+        }
+    """,
+    "cyber": """
+        QMainWindow, QWidget#centralWidget, QStackedWidget {
+            background-color: #0B0518;
+            color: #00F0FF;
+            font-family: 'Segoe UI', sans-serif;
+        }
+        PRTSidebar {
+            background-color: #150A2A;
+            border-right: 1px solid #FF007F;
+            color: #8A72B2;
+        }
+        PRTSidebar QPushButton {
+            text-align: left;
+            padding: 8px 12px;
+            border-radius: 6px;
+            background-color: transparent;
+            color: #8A72B2;
+            border: none;
+            font-weight: 500;
+        }
+        PRTSidebar QPushButton:hover {
+            background-color: #24114A;
+            color: #00F0FF;
+        }
+        PRTSidebar QPushButton:checked {
+            background-color: #381A72;
+            color: #FF007F;
+            font-weight: bold;
+        }
+        PRTSidebar QLabel#sectionHeader { color: #FF007F; }
+        PRTSidebar QLabel#subText { color: #8A72B2; }
+
+        QFrame#cardFrame {
+            background-color: #150A2A;
+            border: 1px solid #FF007F;
+            border-radius: 8px;
+        }
+        QLabel { color: #00F0FF; }
+        QLineEdit, QComboBox {
+            background-color: #1A0D36;
+            color: #00F0FF;
+            border: 1px solid #FF007F;
+            border-radius: 6px;
+            padding: 8px 12px;
+        }
+        QPushButton {
+            background-color: #24114A;
+            color: #00F0FF;
+            border: 1px solid #00F0FF;
+            border-radius: 6px;
+            padding: 8px 14px;
+            font-weight: 500;
+        }
+        QPushButton:hover { background-color: #381A72; }
+        QTableWidget {
+            background-color: #150A2A;
+            color: #00F0FF;
+            gridline-color: #FF007F;
+            border: 1px solid #FF007F;
+            border-radius: 6px;
+        }
+        QHeaderView::section {
+            background-color: #1A0D36;
+            color: #FF007F;
+            border: none;
+            padding: 6px;
+        }
+    """,
+}
+
+
 class PRTMainWindow(QMainWindow):
     """Janela Principal do PRT Nexus."""
 
@@ -82,29 +291,33 @@ class PRTMainWindow(QMainWindow):
         self.resize(1280, 800)
         self.setMinimumSize(1024, 600)
 
-        # Dicionário central de instâncias das páginas
+        self.settings = QSettings("PRTLabs", "PRTNexus")
         self.pages = {}
 
         self._setup_ui()
 
+        saved_theme = self.settings.value("theme", "dark")
+        self.apply_theme(saved_theme)
+
+    def apply_theme(self, theme_id: str) -> None:
+        """Aplica o tema CSS globalmente na aplicação."""
+        style = THEME_STYLES.get(theme_id, THEME_STYLES["dark"])
+        self.setStyleSheet(style)
+
     def _instantiate_page(self, page_cls, title_fallback="Página", **kwargs):
-        """Instancia qualquer página adaptando-se à assinatura de __init__."""
         if not page_cls:
             return self._create_placeholder(title_fallback)
 
-        # 1. Tenta instanciar passando parent + kwargs
         try:
             return page_cls(parent=self, **kwargs)
         except TypeError:
             pass
 
-        # 2. Tenta instanciar apenas com kwargs
         try:
             return page_cls(**kwargs)
         except TypeError:
             pass
 
-        # 3. Tratamento para ConnectorPage (platform_key)
         if "platform_key" in kwargs:
             p_key = kwargs["platform_key"]
             try:
@@ -116,13 +329,11 @@ class PRTMainWindow(QMainWindow):
             except TypeError:
                 pass
 
-        # 4. Tenta instanciar apenas com parent=self
         try:
             return page_cls(parent=self)
         except TypeError:
             pass
 
-        # 5. Tenta instanciar sem argumentos
         try:
             return page_cls()
         except Exception:
@@ -131,7 +342,6 @@ class PRTMainWindow(QMainWindow):
         return self._create_placeholder(title_fallback)
 
     def _create_placeholder(self, title: str):
-        """Cria uma tela de reserva caso a página falhe ao carregar."""
         if PlaceholderPage:
             try:
                 return PlaceholderPage(title=title, parent=self)
@@ -144,31 +354,23 @@ class PRTMainWindow(QMainWindow):
 
     def _setup_ui(self) -> None:
         central_widget = QWidget(self)
-        central_widget.setStyleSheet("background-color: #09090B;")
+        central_widget.setObjectName("centralWidget")
         self.setCentralWidget(central_widget)
 
         main_layout = QHBoxLayout(central_widget)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        # 1. Barra Lateral (Sidebar)
         self.sidebar = PRTSidebar(parent=self, on_navigate=self.navigate_to)
         main_layout.addWidget(self.sidebar)
 
-        # 2. Gerenciador de Páginas Empilhadas
         self.stacked_widget = QStackedWidget(self)
         main_layout.addWidget(self.stacked_widget)
 
-        # 3. Registro Adaptativo de Páginas
         self._register_pages()
-
-        # Abre a Dashboard por padrão ao iniciar
         self.navigate_to("dashboard")
 
     def _register_pages(self) -> None:
-        """Instancia e registra todas as telas da pasta ui/pages."""
-
-        # Páginas Principais
         self.pages["dashboard"] = self._instantiate_page(DashboardPage, "Início", on_navigate=self.navigate_to)
         self.pages["navegador"] = self._instantiate_page(BrowserPage, "Navegador Web")
         self.pages["downloads"] = self._instantiate_page(DownloadsPage, "Downloads")
@@ -176,13 +378,16 @@ class PRTMainWindow(QMainWindow):
         self.pages["favoritos"] = self._instantiate_page(FavoritesPage, "Favoritos")
         self.pages["historico"] = self._instantiate_page(HistoryPage, "Histórico")
 
-        # Ferramentas
-        self.pages["configuracoes"] = self._instantiate_page(SettingsPage, "Configurações")
+        settings_widget = self._instantiate_page(SettingsPage, "Configurações")
+        self.pages["configuracoes"] = settings_widget
+
+        if hasattr(settings_widget, "theme_changed"):
+            settings_widget.theme_changed.connect(self.apply_theme)
+
         self.pages["licenca"] = self._instantiate_page(LicensePage, "Licença")
         self.pages["plugins"] = self._instantiate_page(PluginsPage, "Plugins")
         self.pages["atualizacoes"] = self._create_placeholder("Atualizações")
 
-        # Conectores (Incluso o TikTok)
         connectors_map = [
             ("conn_youtube", "youtube"),
             ("conn_tiktok", "tiktok"),
@@ -199,25 +404,20 @@ class PRTMainWindow(QMainWindow):
                 ConnectorPage,
                 title_fallback=conn_key.capitalize(),
                 platform_key=conn_key,
-                connector_name=conn_key
+                connector_name=conn_key,
             )
 
-        # Adiciona todas as páginas ao QStackedWidget
         for page_widget in self.pages.values():
             if page_widget:
                 self.stacked_widget.addWidget(page_widget)
 
     def navigate_to(self, route_id: str) -> None:
-        """Gerenciador central de navegação."""
-
         ROUTE_MAP = {
             "inicio": "dashboard",
             "home": "dashboard",
             "dashboard": "dashboard",
-
             "navegador": "navegador",
             "browser": "navegador",
-
             "downloads": "downloads",
             "biblioteca": "biblioteca",
             "library": "biblioteca",
@@ -225,7 +425,6 @@ class PRTMainWindow(QMainWindow):
             "favorites": "favoritos",
             "historico": "historico",
             "history": "historico",
-
             "youtube": "conn_youtube",
             "conn_youtube": "conn_youtube",
             "tiktok": "conn_tiktok",
@@ -242,7 +441,6 @@ class PRTMainWindow(QMainWindow):
             "conn_mega": "conn_mega",
             "universo": "conn_universo",
             "conn_universo": "conn_universo",
-
             "configuracoes": "configuracoes",
             "settings": "configuracoes",
             "licenca": "licenca",
@@ -258,7 +456,6 @@ class PRTMainWindow(QMainWindow):
             page_widget = self.pages[target_key]
             self.stacked_widget.setCurrentWidget(page_widget)
 
-            # Sincroniza visualmente a sidebar se necessário
             if hasattr(self, "sidebar") and hasattr(self.sidebar, "set_active_route"):
                 self.sidebar.set_active_route(target_key)
 
@@ -266,6 +463,5 @@ class PRTMainWindow(QMainWindow):
                 page_widget.on_show()
 
 
-# Aliases de compatibilidade
 MainWindow = PRTMainWindow
 main_window = PRTMainWindow

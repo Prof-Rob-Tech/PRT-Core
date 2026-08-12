@@ -1,178 +1,76 @@
 """
 ===========================================================
 PRT Labs - UI / Pages
-Class: FavoritesPage / PRTFavoritesPage
-
-Description:
-    Gerenciador de Links e Mídias Favoritas do PRT Nexus.
+Class: FavoritesPage
+Description: Página de Favoritos do PRT NEXUS adaptável a temas.
 ===========================================================
 """
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QFrame, QLineEdit, QScrollArea
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QVBoxLayout,
+    QWidget,
 )
 
-try:
-    from ui.pages.base_page import BasePage
-except Exception:
-    class BasePage(QWidget):
-        pass
 
+class FavoritesPage(QWidget):
+    """Página de Favoritos do PRT NEXUS."""
 
-class FavoritesPage(BasePage):
-    """Página de Favoritos do PRT Nexus."""
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self._build_ui()
 
-    def __init__(self, parent=None, *args, **kwargs) -> None:
-        try:
-            super().__init__()
-        except TypeError:
-            try:
-                super().__init__(parent)
-            except Exception:
-                QWidget.__init__(self)
+    def _build_ui(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
 
-        if parent is not None and isinstance(parent, QWidget):
-            try:
-                self.setParent(parent)
-            except Exception:
-                pass
+        # Cabeçalho
+        title_layout = QVBoxLayout()
+        title_layout.setSpacing(4)
 
-        self.title = "Favoritos"
-        self.subtitle = "Mídias e Links Salvos"
-        self.icon = "⭐"
-        self.page_id = "favoritos"
-
-        self._setup_ui()
-
-    def _setup_ui(self) -> None:
-        main_layout = self.layout()
-        if main_layout is None:
-            main_layout = QVBoxLayout(self)
-
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
-
-        scroll = QScrollArea(self)
-        scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("""
-            QScrollArea {
-                border: none;
-                background-color: transparent;
-            }
-            QScrollBar:vertical {
-                background: #09090B;
-                width: 8px;
-                margin: 0px;
-            }
-            QScrollBar::handle:vertical {
-                background: #27272A;
-                min-height: 20px;
-                border-radius: 4px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background: #3F3F46;
-            }
-        """)
-
-        container = QWidget()
-        container.setStyleSheet("background-color: transparent;")
-        layout = QVBoxLayout(container)
-        layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(20)
-
-        # 1. Header principal
-        header_layout = QHBoxLayout()
-
-        title_box = QVBoxLayout()
         lbl_title = QLabel("⭐ Seus Favoritos")
-        lbl_title.setStyleSheet("font-size: 24px; font-weight: bold; color: #FFFFFF; border: none; background: transparent;")
+        lbl_title.setStyleSheet("font-size: 20px; font-weight: bold;")
+
         lbl_subtitle = QLabel("Acesso rápido às suas mídias, vídeos e conectores salvos.")
-        lbl_subtitle.setStyleSheet("font-size: 13px; color: #71717A; border: none; background: transparent;")
-        title_box.addWidget(lbl_title)
-        title_box.addWidget(lbl_subtitle)
+        lbl_subtitle.setStyleSheet("color: #8E8E93; font-size: 13px;")
 
-        header_layout.addLayout(title_box)
-        header_layout.addStretch()
-        layout.addLayout(header_layout)
+        title_layout.addWidget(lbl_title)
+        title_layout.addWidget(lbl_subtitle)
+        layout.addLayout(title_layout)
 
-        # 2. Barra de Busca
-        filter_card = QFrame()
-        filter_card.setObjectName("filterCard")
-        filter_card.setStyleSheet("""
-            QFrame#filterCard {
-                background-color: #18181B;
-                border: 1px solid #27272A;
-                border-radius: 10px;
-            }
-        """)
-        filter_layout = QHBoxLayout(filter_card)
-        filter_layout.setContentsMargins(12, 12, 12, 12)
+        # Barra de Pesquisa
+        self.txt_search = QLineEdit()
+        self.txt_search.setPlaceholderText("🔍 Pesquisar nos favoritos...")
+        layout.addWidget(self.txt_search)
 
-        self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("🔍 Pesquisar nos favoritos...")
-        self.search_input.setStyleSheet("""
-            QLineEdit {
-                background-color: #09090B;
-                color: #FFFFFF;
-                border: 1px solid #27272A;
-                border-radius: 6px;
-                padding: 8px 12px;
-                font-size: 13px;
-            }
-            QLineEdit:focus {
-                border-color: #6366F1;
-            }
-        """)
-        filter_layout.addWidget(self.search_input)
+        # Container do Estado Vazio
+        self.card_empty = QFrame()
+        self.card_empty.setObjectName("cardFrame")
 
-        layout.addWidget(filter_card)
+        empty_layout = QVBoxLayout(self.card_empty)
+        empty_layout.setContentsMargins(30, 40, 30, 40)
+        empty_layout.setSpacing(10)
 
-        # 3. Estado Vazio (Card)
-        empty_card = QFrame()
-        empty_card.setObjectName("emptyCard")
-        empty_card.setStyleSheet("""
-            QFrame#emptyCard {
-                background-color: #18181B;
-                border: 1px solid #27272A;
-                border-radius: 12px;
-            }
-            QLabel {
-                border: none !important;
-                background: transparent !important;
-            }
-        """)
+        lbl_empty_icon = QLabel("⭐")
+        lbl_empty_icon.setAlignment(Qt.AlignCenter)
+        lbl_empty_icon.setStyleSheet("font-size: 36px;")
 
-        card_layout = QVBoxLayout(empty_card)
-        card_layout.setContentsMargins(40, 60, 40, 60)
-        card_layout.setAlignment(Qt.AlignCenter)
+        lbl_empty_title = QLabel("Nenhum favorito salvo ainda")
+        lbl_empty_title.setAlignment(Qt.AlignCenter)
+        lbl_empty_title.setStyleSheet("font-size: 16px; font-weight: bold;")
 
-        icon_empty = QLabel("⭐")
-        icon_empty.setStyleSheet("font-size: 48px;")
-        icon_empty.setAlignment(Qt.AlignCenter)
+        lbl_empty_desc = QLabel("Você pode favoritar links no Navegador ou conteúdos capturados nos conectores para acessar rapidamente por aqui.")
+        lbl_empty_desc.setAlignment(Qt.AlignCenter)
+        lbl_empty_desc.setStyleSheet("color: #8E8E93; font-size: 13px;")
 
-        title_empty = QLabel("Nenhum favorito salvo ainda")
-        title_empty.setStyleSheet("font-size: 18px; font-weight: bold; color: #FFFFFF; margin-top: 12px;")
-        title_empty.setAlignment(Qt.AlignCenter)
+        empty_layout.addWidget(lbl_empty_icon)
+        empty_layout.addWidget(lbl_empty_title)
+        empty_layout.addWidget(lbl_empty_desc)
 
-        desc_empty = QLabel("Você pode favoritar links no Navegador ou conteúdos capturados nos conectores para acessar rapidamente por aqui.")
-        desc_empty.setStyleSheet("font-size: 13px; color: #71717A; margin-top: 4px;")
-        desc_empty.setAlignment(Qt.AlignCenter)
-
-        card_layout.addWidget(icon_empty)
-        card_layout.addWidget(title_empty)
-        card_layout.addWidget(desc_empty)
-
-        layout.addWidget(empty_card)
+        layout.addWidget(self.card_empty)
         layout.addStretch()
-
-        scroll.setWidget(container)
-        main_layout.addWidget(scroll)
-
-    def on_show(self) -> None:
-        pass
-
-
-# Aliases para compatibilidade total
-PRTFavoritesPage = FavoritesPage

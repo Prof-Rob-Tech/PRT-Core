@@ -2,8 +2,8 @@
 ===========================================================
 PRT Labs - UI / Sidebar Widget
 Class: PRTSidebar
-Description: Barra lateral de navegação com suporte a todos
-             os conectores e ferramentas do PRT Nexus.
+Description: Barra lateral de navegação com suporte adaptativo
+             a todos os temas do PRT Nexus.
 ===========================================================
 """
 
@@ -23,7 +23,7 @@ except ImportError:
 
 SVG_ICONS = {
     "inicio": """<svg viewBox="0 0 24 24" fill="none" stroke="#A1A1AA" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>""",
-    "navegador": """<svg viewBox="0 0 24 24" fill="none" stroke="#6366F1" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>""",
+    "navegador": """<svg viewBox="0 0 24 24" fill="none" stroke="#6366F1" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10z"/></svg>""",
     "downloads": """<svg viewBox="0 0 24 24" fill="none" stroke="#A1A1AA" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>""",
     "biblioteca": """<svg viewBox="0 0 24 24" fill="none" stroke="#A1A1AA" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>""",
     "favoritos": """<svg viewBox="0 0 24 24" fill="none" stroke="#A1A1AA" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>""",
@@ -60,22 +60,19 @@ def create_icon_from_svg(svg_code: str, size: int = 18) -> QIcon:
 
 
 class PRTSidebar(QWidget):
-    """Barra lateral estilizada para navegação."""
+    """Barra lateral estilizada para navegação adaptativa."""
 
     def __init__(self, parent=None, on_navigate=None) -> None:
         super().__init__(parent)
+        # OBRIGATÓRIO PARA O QT PINTAR O BACKGROUND DA SIDEBAR VIA STYLESHEET
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        
         self.on_navigate_callback = on_navigate
         self.buttons = {}
         self.active_route = "dashboard"
 
         self.setFixedWidth(240)
         self.setStyleSheet("""
-            QWidget {
-                background-color: #09090B;
-                color: #A1A1AA;
-                font-family: 'Segoe UI', sans-serif;
-                font-size: 13px;
-            }
             QScrollArea {
                 border: none;
                 background-color: transparent;
@@ -85,7 +82,6 @@ class PRTSidebar(QWidget):
         self._setup_ui()
 
     def connect_main_window(self, main_window) -> None:
-        """Conecta a barra lateral à janela principal para gerenciamento de navegação."""
         if hasattr(main_window, "navigate_to") and callable(main_window.navigate_to):
             self.on_navigate_callback = main_window.navigate_to
 
@@ -94,26 +90,27 @@ class PRTSidebar(QWidget):
         layout.setContentsMargins(12, 16, 12, 16)
         layout.setSpacing(12)
 
-        # 1. Header com Logo
+        # Header com Logo
         header_layout = QHBoxLayout()
         header_layout.setContentsMargins(8, 0, 8, 8)
 
         logo_icon = QLabel("⚡")
         logo_icon.setStyleSheet("font-size: 18px;")
         logo_title = QLabel("PRT NEXUS")
-        logo_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #FFFFFF;")
+        logo_title.setStyleSheet("font-size: 16px; font-weight: bold;")
 
         header_layout.addWidget(logo_icon)
         header_layout.addWidget(logo_title)
         header_layout.addStretch()
         layout.addLayout(header_layout)
 
-        # 2. Área Rolável dos Menus
+        # Área Rolável dos Menus
         scroll_area = QScrollArea(self)
         scroll_area.setWidgetResizable(True)
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
         scroll_widget = QWidget()
+        scroll_widget.setStyleSheet("background-color: transparent;")
         scroll_layout = QVBoxLayout(scroll_widget)
         scroll_layout.setContentsMargins(0, 0, 0, 0)
         scroll_layout.setSpacing(4)
@@ -148,35 +145,28 @@ class PRTSidebar(QWidget):
         scroll_area.setWidget(scroll_widget)
         layout.addWidget(scroll_area)
 
-        # 3. Card do Rodapé
+        # Card do Rodapé
         footer_card = QFrame(self)
-        footer_card.setStyleSheet("""
-            QFrame {
-                background-color: #18181B;
-                border: 1px solid #27272A;
-                border-radius: 8px;
-                padding: 8px;
-            }
-        """)
+        footer_card.setObjectName("cardFrame")
         footer_layout = QVBoxLayout(footer_card)
-        footer_layout.setContentsMargins(8, 6, 8, 6)
+        footer_layout.setContentsMargins(10, 8, 10, 8)
 
         txt1 = QLabel("✦ PRT Labs")
-        txt1.setStyleSheet("color: #FFFFFF; font-weight: bold; font-size: 11px;")
+        txt1.setStyleSheet("font-weight: bold; font-size: 11px;")
         txt2 = QLabel("PRT Nexus v0.1.0-alpha")
-        txt2.setStyleSheet("color: #71717A; font-size: 10px;")
+        txt2.setObjectName("subText")
+        txt2.setStyleSheet("font-size: 10px;")
 
         footer_layout.addWidget(txt1)
         footer_layout.addWidget(txt2)
         layout.addWidget(footer_card)
 
-        # Define início como ativo
         self.set_active_route("dashboard")
 
     def _add_section_header(self, layout: QVBoxLayout, text: str) -> None:
         header = QLabel(text)
+        header.setObjectName("sectionHeader")
         header.setStyleSheet("""
-            color: #52525B;
             font-size: 10px;
             font-weight: bold;
             padding-top: 12px;
@@ -195,27 +185,6 @@ class PRTSidebar(QWidget):
             icon = create_icon_from_svg(SVG_ICONS[icon_key])
             if not icon.isNull():
                 btn.setIcon(icon)
-
-        btn.setStyleSheet("""
-            QPushButton {
-                text-align: left;
-                padding: 8px 12px;
-                border-radius: 6px;
-                background-color: transparent;
-                color: #A1A1AA;
-                border: none;
-                font-weight: 500;
-            }
-            QPushButton:hover {
-                background-color: #18181B;
-                color: #FFFFFF;
-            }
-            QPushButton:checked {
-                background-color: #27272A;
-                color: #FFFFFF;
-                font-weight: bold;
-            }
-        """)
 
         btn.clicked.connect(lambda: self._on_item_clicked(route_id))
         layout.addWidget(btn)

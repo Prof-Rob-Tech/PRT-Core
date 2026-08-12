@@ -1,107 +1,98 @@
 """
 ===========================================================
-PRT Labs - UI / Dashboard Page
+PRT Labs - UI / Pages
 Class: DashboardPage
-Description: Tela inicial com resumo de métricas e
-             grid de atalhos rápidos para conectores.
+Description: Dashboard Principal do PRT NEXUS adaptável a temas.
 ===========================================================
 """
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-    QFrame, QGridLayout, QPushButton, QScrollArea
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
 )
 
 
 class DashboardPage(QWidget):
-    """Página Dashboard principal do PRT Nexus."""
+    """Página Dashboard / Início do PRT NEXUS."""
 
     def __init__(self, parent=None, on_navigate=None) -> None:
         super().__init__(parent)
         self.on_navigate_callback = on_navigate
+        self._build_ui()
 
-        self.setStyleSheet("""
-            QWidget {
-                background-color: #09090B;
-                color: #FFFFFF;
-                font-family: 'Segoe UI', sans-serif;
-            }
-            QScrollArea {
-                border: none;
-                background-color: transparent;
-            }
-        """)
-
-        self._setup_ui()
-
-    def _setup_ui(self) -> None:
+    def _build_ui(self) -> None:
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
 
-        scroll = QScrollArea(self)
+        scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("""
-            QScrollArea {
-                border: none;
-                background-color: transparent;
-            }
-            QScrollBar:vertical {
-                background: #09090B;
-                width: 8px;
-                margin: 0px;
-            }
-            QScrollBar::handle:vertical {
-                background: #27272A;
-                min-height: 20px;
-                border-radius: 4px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background: #3F3F46;
-            }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-                height: 0px;
-            }
-        """)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
 
         container = QWidget()
-        container.setStyleSheet("background-color: transparent;")
+        container.setStyleSheet("background: transparent;")
         layout = QVBoxLayout(container)
-        layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(24)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(20)
 
-        # 1. Header de Boas-Vindas
-        header_box = QVBoxLayout()
-        title = QLabel("Dashboard PRT Nexus")
-        title.setStyleSheet("font-size: 26px; font-weight: bold; color: #FFFFFF; border: none; background: transparent;")
-        subtitle = QLabel("Central de download, extração de mídias e gestão de conectores.")
-        subtitle.setStyleSheet("font-size: 14px; color: #71717A; border: none; background: transparent;")
-        header_box.addWidget(title)
-        header_box.addWidget(subtitle)
-        layout.addLayout(header_box)
+        # Cabeçalho
+        title_layout = QVBoxLayout()
+        title_layout.setSpacing(4)
 
-        # 2. Resumo de Métricas (8 Módulos Prontos)
-        metrics_layout = QHBoxLayout()
-        metrics_layout.setSpacing(16)
+        lbl_title = QLabel("Dashboard PRT Nexus")
+        lbl_title.setStyleSheet("font-size: 22px; font-weight: bold;")
 
-        metrics_layout.addWidget(self._create_stat_card("Conectores", "8 Módulos Prontos", "#10B981"))
-        metrics_layout.addWidget(self._create_stat_card("Downloads Ativos", "0 em andamento", "#6366F1"))
-        metrics_layout.addWidget(self._create_stat_card("Mídias Salvas", "0 arquivos", "#F59E0B"))
-        metrics_layout.addWidget(self._create_stat_card("Sistema Core", "100% Operacional", "#3B82F6"))
+        lbl_subtitle = QLabel("Central de download, extração de mídias e gestão de conectores.")
+        lbl_subtitle.setStyleSheet("color: #8E8E93; font-size: 13px;")
 
-        layout.addLayout(metrics_layout)
+        title_layout.addWidget(lbl_title)
+        title_layout.addWidget(lbl_subtitle)
+        layout.addLayout(title_layout)
 
-        # 3. Título da Seção Conectores
-        sec_title = QLabel("Atalhos Rápidos de Conectores")
-        sec_title.setStyleSheet("font-size: 18px; font-weight: bold; color: #E4E4E7; margin-top: 12px; border: none; background: transparent;")
-        layout.addWidget(sec_title)
+        # Cards de Status
+        stats_layout = QHBoxLayout()
+        stats_layout.setSpacing(12)
 
-        # 4. Grid de Cards dos Módulos (com TikTok incluso)
-        grid_layout = QGridLayout()
-        grid_layout.setSpacing(16)
+        stats = [
+            ("Conectores", "8 Módulos Prontos", "#00E676"),
+            ("Downloads Ativos", "0 em andamento", "#6366F1"),
+            ("Mídias Salvas", "0 arquivos", "#FF9800"),
+            ("Sistema Core", "100% Operacional", "#00F0FF"),
+        ]
 
-        cards_data = [
+        for title, value, border_color in stats:
+            card = QFrame()
+            card.setObjectName("cardFrame")
+            card_layout = QVBoxLayout(card)
+            card_layout.setContentsMargins(15, 12, 15, 12)
+
+            lbl_t = QLabel(title)
+            lbl_t.setStyleSheet("color: #8E8E93; font-size: 11px; font-weight: bold;")
+
+            lbl_v = QLabel(value)
+            lbl_v.setStyleSheet("font-size: 15px; font-weight: bold;")
+
+            card_layout.addWidget(lbl_t)
+            card_layout.addWidget(lbl_v)
+            stats_layout.addWidget(card)
+
+        layout.addLayout(stats_layout)
+
+        # Seção Conectores
+        lbl_sec = QLabel("Atalhos Rápido de Conectores")
+        lbl_sec.setStyleSheet("font-size: 16px; font-weight: bold; margin-top: 10px;")
+        layout.addWidget(lbl_sec)
+
+        grid = QGridLayout()
+        grid.setSpacing(12)
+
+        connectors = [
             ("Navegador Web", "Navegar e extrair URLs direto de sites", "navegador"),
             ("Downloads", "Ver gerenciador e histórico de downloads", "downloads"),
             ("YouTube", "Download de vídeos, playlists e áudio", "conn_youtube"),
@@ -113,99 +104,37 @@ class DashboardPage(QWidget):
         ]
 
         row, col = 0, 0
-        for name, desc, route_id in cards_data:
-            card = self._create_module_card(name, desc, route_id)
-            grid_layout.addWidget(card, row, col)
+        for name, desc, route in connectors:
+            card = QFrame()
+            card.setObjectName("cardFrame")
+            c_layout = QVBoxLayout(card)
+            c_layout.setContentsMargins(15, 15, 15, 15)
+
+            lbl_n = QLabel(name)
+            lbl_n.setStyleSheet("font-size: 14px; font-weight: bold;")
+
+            lbl_d = QLabel(desc)
+            lbl_d.setStyleSheet("color: #8E8E93; font-size: 12px;")
+
+            btn = QPushButton("Acessar Módulo →")
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.clicked.connect(lambda _, r=route: self._navigate(r))
+
+            c_layout.addWidget(lbl_n)
+            c_layout.addWidget(lbl_d)
+            c_layout.addSpacing(8)
+            c_layout.addWidget(btn)
+
+            grid.addWidget(card, row, col)
             col += 1
             if col > 3:
                 col = 0
                 row += 1
 
-        layout.addLayout(grid_layout)
-        layout.addStretch()
-
+        layout.addLayout(grid)
         scroll.setWidget(container)
         main_layout.addWidget(scroll)
 
-    def _create_stat_card(self, title: str, value: str, accent_color: str) -> QFrame:
-        card = QFrame()
-        card.setObjectName("statCard")
-        card.setStyleSheet(f"""
-            QFrame#statCard {{
-                background-color: #18181B;
-                border: 1px solid #27272A;
-                border-left: 4px solid {accent_color};
-                border-radius: 8px;
-            }}
-            QFrame#statCard QLabel {{
-                border: none !important;
-                background: transparent !important;
-            }}
-        """)
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(16, 14, 16, 14)
-
-        lbl_title = QLabel(title)
-        lbl_title.setStyleSheet("color: #A1A1AA; font-size: 12px;")
-        lbl_val = QLabel(value)
-        lbl_val.setStyleSheet("color: #FFFFFF; font-size: 16px; font-weight: bold; margin-top: 4px;")
-
-        layout.addWidget(lbl_title)
-        layout.addWidget(lbl_val)
-        return card
-
-    def _create_module_card(self, name: str, desc: str, route_id: str) -> QFrame:
-        card = QFrame()
-        card.setObjectName("moduleCard")
-        card.setStyleSheet("""
-            QFrame#moduleCard {
-                background-color: #18181B;
-                border: 1px solid #27272A;
-                border-radius: 10px;
-            }
-            QFrame#moduleCard:hover {
-                border: 1px solid #3F3F46;
-                background-color: #202023;
-            }
-            QFrame#moduleCard QLabel {
-                border: none !important;
-                background: transparent !important;
-            }
-        """)
-
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(16, 16, 16, 16)
-
-        lbl_name = QLabel(name)
-        lbl_name.setStyleSheet("font-size: 16px; font-weight: bold; color: #FFFFFF;")
-        
-        lbl_desc = QLabel(desc)
-        lbl_desc.setWordWrap(True)
-        lbl_desc.setStyleSheet("font-size: 12px; color: #A1A1AA; margin-top: 4px;")
-
-        btn = QPushButton("Acessar Módulo →")
-        btn.setCursor(Qt.PointingHandCursor)
-        btn.setStyleSheet("""
-            QPushButton {
-                background-color: #27272A;
-                color: #FFFFFF;
-                border: 1px solid #3F3F46;
-                padding: 8px 12px;
-                border-radius: 6px;
-                font-weight: 500;
-                margin-top: 12px;
-            }
-            QPushButton:hover {
-                background-color: #3F3F46;
-            }
-        """)
-        btn.clicked.connect(lambda checked=False, r=route_id: self._navigate(r))
-
-        layout.addWidget(lbl_name)
-        layout.addWidget(lbl_desc)
-        layout.addWidget(btn)
-        return card
-
-    def _navigate(self, route_id: str) -> None:
+    def _navigate(self, route: str) -> None:
         if callable(self.on_navigate_callback):
-            self.on_navigate_callback(route_id)
+            self.on_navigate_callback(route)

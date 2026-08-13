@@ -55,18 +55,33 @@ class Application:
             )
 
     def _on_media_intercepted(self, media_data: dict) -> None:
-        """Slot acionado quando o Sniffer detecta uma mídia."""
-        url = media_data["url"]
-        platform = media_data["platform"]
+        """
+        Recebe os dados da mídia interceptada pelo navegador e 
+        envia para o Gerenciador de Downloads.
+        """
+        if not media_data:
+            return
 
-        print(f"\n⚡ [Application] Mídia detectada no Sniffer ({platform.upper()})!")
-        print(f"📥 Disparando download de teste via PRTDownloadManager...")
+        # Busca as chaves de forma segura sem dar KeyError
+        url = media_data.get("url", "")
+        platform = media_data.get("platform", "WEB")
+        media_type = media_data.get("media_type", "VIDEO")
+        quality = media_data.get("quality", "1080p")
+        title = media_data.get("title") or media_data.get("page_title") or ""
 
-        # Inicia o download em segundo plano
-        self.download_manager.add_download(
-            url=url, 
-            title=f"Video_Capturado_{platform}"
-        )
+        if not url:
+            return
+
+        # Envia para a página de Downloads com o título capturado
+        if hasattr(self, "downloads_page"):
+            self.downloads_page.add_download(
+                url=url,
+                media_type=media_type,
+                quality=quality,
+                title=title
+            )
+            # Alterna automaticamente para a aba de Downloads se desejado
+            # self.sidebar.select_tab("downloads")
 
     def run(self) -> int:
         """Exibe a interface e inicia o loop de eventos Qt."""

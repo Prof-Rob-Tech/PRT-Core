@@ -5,7 +5,7 @@ Class: PRTMainWindow / MainWindow
 
 Description:
     Janela Principal do PRT Nexus com suporte global completo 
-    a temas (Escuro, Claro, Cyber).
+    a temas (Escuro, Claro, Cyber) e integração de sinais entre páginas.
 ===========================================================
 """
 
@@ -378,6 +378,11 @@ class PRTMainWindow(QMainWindow):
         self.pages["favoritos"] = self._instantiate_page(FavoritesPage, "Favoritos")
         self.pages["historico"] = self._instantiate_page(HistoryPage, "Histórico")
 
+        # Conectar Sinal de Download do Navegador
+        browser_widget = self.pages.get("navegador")
+        if browser_widget and hasattr(browser_widget, "download_requested"):
+            browser_widget.download_requested.connect(self._handle_browser_download)
+
         settings_widget = self._instantiate_page(SettingsPage, "Configurações")
         self.pages["configuracoes"] = settings_widget
 
@@ -410,6 +415,14 @@ class PRTMainWindow(QMainWindow):
         for page_widget in self.pages.values():
             if page_widget:
                 self.stacked_widget.addWidget(page_widget)
+
+    def _handle_browser_download(self, url: str, media_type: str, quality: str, title: str = None) -> None:
+        """Recebe a solicitação do navegador e repassa o título real para a página de downloads."""
+        downloads_widget = self.pages.get("downloads")
+        if downloads_widget and hasattr(downloads_widget, "add_download"):
+            downloads_widget.add_download(url, media_type, quality, title)
+
+        self.navigate_to("downloads")
 
     def navigate_to(self, route_id: str) -> None:
         ROUTE_MAP = {

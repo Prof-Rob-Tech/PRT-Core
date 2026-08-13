@@ -5,7 +5,8 @@ Class: PRTMainWindow / MainWindow
 
 Description:
     Janela Principal do PRT Nexus com suporte global completo 
-    a temas (Escuro, Claro, Cyber) e integração de sinais entre páginas.
+    a temas (Escuro, Claro, Cyber), navegação entre páginas,
+    gerenciamento de tray icon e integração com a UpdatesPage.
 ===========================================================
 """
 
@@ -27,6 +28,7 @@ from PySide6.QtWidgets import (
 
 from ui.widgets.sidebar import PRTSidebar
 
+# --- IMPORTAÇÃO SEGURA DAS PÁGINAS ---
 try:
     from ui.pages.dashboard_page import DashboardPage
 except Exception:
@@ -76,6 +78,11 @@ try:
     from ui.pages.plugins_page import PluginsPage
 except Exception:
     PluginsPage = None
+
+try:
+    from ui.pages.updates_page import UpdatesPage
+except Exception:
+    UpdatesPage = None
 
 try:
     from ui.pages.placeholder_page import PlaceholderPage  # type: ignore
@@ -307,7 +314,6 @@ class PRTMainWindow(QMainWindow):
                 ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
             except Exception:
                 pass
-        # -------------------------------------------------------------
 
         self.setWindowTitle("PRT NEXUS")
         self.resize(1280, 800)
@@ -495,7 +501,9 @@ class PRTMainWindow(QMainWindow):
 
         self.pages["licenca"] = self._instantiate_page(LicensePage, "Licença")
         self.pages["plugins"] = self._instantiate_page(PluginsPage, "Plugins")
-        self.pages["atualizacoes"] = self._create_placeholder("Atualizações")
+        self.pages["atualizacoes"] = self._instantiate_page(
+            UpdatesPage, "Atualizações"
+        )
 
         connectors_map = [
             ("conn_youtube", "youtube"),

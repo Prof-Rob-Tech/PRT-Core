@@ -26,7 +26,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-# Temas Globais para aplicação direta
 THEMES = {
     "dark": """
         QMainWindow, QWidget#centralWidget, QStackedWidget {
@@ -171,7 +170,9 @@ class SettingsPage(QWidget):
         theme_card_layout.setSpacing(12)
 
         lbl_theme_title = QLabel("Aparência e Personalização")
-        lbl_theme_title.setStyleSheet("color: #8E8E93; font-size: 12px; font-weight: bold; text-transform: uppercase;")
+        lbl_theme_title.setStyleSheet(
+            "color: #8E8E93; font-size: 12px; font-weight: bold; text-transform: uppercase;"
+        )
         theme_card_layout.addWidget(lbl_theme_title)
 
         cards_layout = QHBoxLayout()
@@ -222,15 +223,25 @@ class SettingsPage(QWidget):
         card_layout.setSpacing(12)
 
         lbl_card_title = QLabel("Comportamento do Aplicativo")
-        lbl_card_title.setStyleSheet("color: #8E8E93; font-size: 12px; font-weight: bold; text-transform: uppercase;")
+        lbl_card_title.setStyleSheet(
+            "color: #8E8E93; font-size: 12px; font-weight: bold; text-transform: uppercase;"
+        )
         card_layout.addWidget(lbl_card_title)
 
-        self.chk_minimize_to_tray = QCheckBox("Manter aplicativo rodando na bandeja do sistema ao fechar (X)")
+        self.chk_minimize_to_tray = QCheckBox(
+            "Manter aplicativo rodando na bandeja do sistema ao fechar (X)"
+        )
         self.chk_minimize_to_tray.setCursor(Qt.PointingHandCursor)
         self.chk_minimize_to_tray.setStyleSheet("font-size: 13px; spacing: 8px;")
 
-        close_to_tray = self.settings.value("close_to_tray", True, type=bool)
-        self.chk_minimize_to_tray.setChecked(close_to_tray)
+        # --- CORREÇÃO DA LEITURA SEGURA E CHAVE UNIFICADA ---
+        val = self.settings.value("minimize_to_tray", True)
+        if isinstance(val, str):
+            minimize_to_tray = val.lower() in ("true", "1")
+        else:
+            minimize_to_tray = bool(val)
+
+        self.chk_minimize_to_tray.setChecked(minimize_to_tray)
         self.chk_minimize_to_tray.toggled.connect(self._on_close_to_tray_toggled)
 
         card_layout.addWidget(self.chk_minimize_to_tray)
@@ -238,15 +249,13 @@ class SettingsPage(QWidget):
 
         layout.addStretch()
 
-        # Atualiza os botões e aplica o tema ativo de início
         self._update_button_states(saved_theme)
 
     def _select_theme(self, theme_id: str) -> None:
         """Salva o tema e aplica IMEDIATAMENTE no aplicativo inteiro."""
         self.settings.setValue("theme", theme_id)
         self._update_button_states(theme_id)
-        
-        # 1. Aplica o estilo diretamente na aplicação
+
         style = THEMES.get(theme_id, THEMES["dark"])
         app = QApplication.instance()
         if app:
@@ -256,7 +265,6 @@ class SettingsPage(QWidget):
                 widget.style().polish(widget)
                 widget.update()
 
-        # 2. Emite o sinal caso a MainWindow esteja escutando
         self.theme_changed.emit(theme_id)
 
     def _update_button_states(self, active_theme_id: str) -> None:
@@ -265,4 +273,6 @@ class SettingsPage(QWidget):
             btn.setChecked(theme_id == active_theme_id)
 
     def _on_close_to_tray_toggled(self, checked: bool) -> None:
+        """Salva a chave exata 'minimize_to_tray' e sincroniza a legada 'close_to_tray'."""
+        self.settings.setValue("minimize_to_tray", checked)
         self.settings.setValue("close_to_tray", checked)

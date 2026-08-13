@@ -9,8 +9,8 @@ Description:
 ===========================================================
 """
 
-import sys
 import ctypes
+import sys
 
 from PySide6.QtCore import QSettings, Qt
 from PySide6.QtGui import QColor, QIcon, QPixmap
@@ -78,7 +78,7 @@ except Exception:
     PluginsPage = None
 
 try:
-    from ui.pages.placeholder_page import PlaceholderPage # type: ignore
+    from ui.pages.placeholder_page import PlaceholderPage  # type: ignore
 except Exception:
     PlaceholderPage = None
 
@@ -313,14 +313,6 @@ class PRTMainWindow(QMainWindow):
         self.resize(1280, 800)
         self.setMinimumSize(1024, 600)
 
-
-    def __init__(self) -> None:
-        super().__init__()
-
-        self.setWindowTitle("PRT NEXUS")
-        self.resize(1280, 800)
-        self.setMinimumSize(1024, 600)
-
         self.settings = QSettings("PRTLabs", "PRTNexus")
         self.pages = {}
 
@@ -457,7 +449,13 @@ class PRTMainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:
         """Intercepta o clique no botão de fechar (X)."""
-        minimize_to_tray = self.settings.value("minimize_to_tray", True, type=bool)
+        val = self.settings.value("minimize_to_tray", True)
+
+        # Tratamento seguro contra strings do Registro do Windows ("false"/"true")
+        if isinstance(val, str):
+            minimize_to_tray = val.lower() in ("true", "1")
+        else:
+            minimize_to_tray = bool(val)
 
         if minimize_to_tray:
             event.ignore()
@@ -468,9 +466,10 @@ class PRTMainWindow(QMainWindow):
                     "PRT NEXUS",
                     "O aplicativo continua rodando em segundo plano.",
                     QSystemTrayIcon.MessageIcon.Information,
-                    3000
+                    3000,
                 )
         else:
+            event.accept()
             self.force_quit()
 
     def _register_pages(self) -> None:

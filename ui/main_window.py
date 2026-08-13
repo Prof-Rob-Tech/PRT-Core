@@ -9,8 +9,21 @@ Description:
 ===========================================================
 """
 
+import sys
+import ctypes
+
 from PySide6.QtCore import QSettings, Qt
-from PySide6.QtWidgets import QHBoxLayout, QMainWindow, QStackedWidget, QWidget
+from PySide6.QtGui import QColor, QIcon, QPixmap
+from PySide6.QtWidgets import (
+    QApplication,
+    QHBoxLayout,
+    QMainWindow,
+    QMenu,
+    QStackedWidget,
+    QStyle,
+    QSystemTrayIcon,
+    QWidget,
+)
 
 from ui.widgets.sidebar import PRTSidebar
 
@@ -65,7 +78,7 @@ except Exception:
     PluginsPage = None
 
 try:
-    from ui.pages.placeholder_page import PlaceholderPage
+    from ui.pages.placeholder_page import PlaceholderPage # type: ignore
 except Exception:
     PlaceholderPage = None
 
@@ -287,6 +300,23 @@ class PRTMainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
 
+        # --- REGISTRA O APP NO WINDOWS PARA PERMITIR NOTIFICAÇÕES ---
+        if sys.platform == "win32":
+            try:
+                myappid = "prtlabs.prtnexus.desktop.1.0"
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+            except Exception:
+                pass
+        # -------------------------------------------------------------
+
+        self.setWindowTitle("PRT NEXUS")
+        self.resize(1280, 800)
+        self.setMinimumSize(1024, 600)
+
+
+    def __init__(self) -> None:
+        super().__init__()
+
         self.setWindowTitle("PRT NEXUS")
         self.resize(1280, 800)
         self.setMinimumSize(1024, 600)
@@ -295,6 +325,7 @@ class PRTMainWindow(QMainWindow):
         self.pages = {}
 
         self._setup_ui()
+        self._setup_system_tray()
 
         saved_theme = self.settings.value("theme", "dark")
         self.apply_theme(saved_theme)
@@ -370,8 +401,82 @@ class PRTMainWindow(QMainWindow):
         self._register_pages()
         self.navigate_to("dashboard")
 
+    def _setup_system_tray(self) -> None:
+        """Configura o ícone na bandeja do sistema (System Tray)."""
+        self.tray_icon = QSystemTrayIcon(self)
+
+        # 1. Tenta carregar do arquivo local de assets
+        icon = QIcon("assets/icon.png")
+
+        # 2. Se falhar, usa o ícone atribuído à janela
+        if icon.isNull():
+            icon = self.windowIcon()
+
+        # 3. Se falhar, tenta o ícone padrão do sistema
+        if icon.isNull():
+            icon = self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon)
+
+        # 4. Fallback infalível: desenha um ícone simples em memória
+        if icon.isNull():
+            pixmap = QPixmap(16, 16)
+            pixmap.fill(QColor("#00F0FF"))
+            icon = QIcon(pixmap)
+
+        self.tray_icon.setIcon(icon)
+
+        # Configura o menu da bandeja (botão direito)
+        tray_menu = QMenu()
+        show_action = tray_menu.addAction("Abrir PRT NEXUS")
+        show_action.triggered.connect(self.show_from_tray)
+
+        tray_menu.addSeparator()
+
+        quit_action = tray_menu.addAction("Sair do PRT NEXUS")
+        quit_action.triggered.connect(self.force_quit)
+
+        self.tray_icon.setContextMenu(tray_menu)
+        self.tray_icon.activated.connect(self._on_tray_icon_activated)
+        self.tray_icon.show()
+
+    def _on_tray_icon_activated(self, reason) -> None:
+        """Restaura a janela ao clicar no ícone da bandeja."""
+        if reason in (QSystemTrayIcon.Trigger, QSystemTrayIcon.DoubleClick):
+            self.show_from_tray()
+
+    def show_from_tray(self) -> None:
+        """Exibe a janela novamente e traz para a frente."""
+        self.show()
+        self.activateWindow()
+        self.raise_()
+
+    def force_quit(self) -> None:
+        """Encerra a aplicação de verdade."""
+        if hasattr(self, "tray_icon"):
+            self.tray_icon.hide()
+        QApplication.quit()
+
+    def closeEvent(self, event) -> None:
+        """Intercepta o clique no botão de fechar (X)."""
+        minimize_to_tray = self.settings.value("minimize_to_tray", True, type=bool)
+
+        if minimize_to_tray:
+            event.ignore()
+            self.hide()
+
+            if hasattr(self, "tray_icon") and self.tray_icon.isVisible():
+                self.tray_icon.showMessage(
+                    "PRT NEXUS",
+                    "O aplicativo continua rodando em segundo plano.",
+                    QSystemTrayIcon.MessageIcon.Information,
+                    3000
+                )
+        else:
+            self.force_quit()
+
     def _register_pages(self) -> None:
-        self.pages["dashboard"] = self._instantiate_page(DashboardPage, "Início", on_navigate=self.navigate_to)
+        self.pages["dashboard"] = self._instantiate_page(
+            DashboardPage, "Início", on_navigate=self.navigate_to
+        )
         self.pages["navegador"] = self._instantiate_page(BrowserPage, "Navegador Web")
         self.pages["downloads"] = self._instantiate_page(DownloadsPage, "Downloads")
         self.pages["biblioteca"] = self._instantiate_page(LibraryPage, "Biblioteca")
@@ -416,7 +521,9 @@ class PRTMainWindow(QMainWindow):
             if page_widget:
                 self.stacked_widget.addWidget(page_widget)
 
-    def _handle_browser_download(self, url: str, media_type: str, quality: str, title: str = None) -> None:
+    def _handle_browser_download(
+        self, url: str, media_type: str, quality: str, title: str = None
+    ) -> None:
         """Recebe a solicitação do navegador e repassa o título real para a página de downloads."""
         downloads_widget = self.pages.get("downloads")
         if downloads_widget and hasattr(downloads_widget, "add_download"):
@@ -469,7 +576,9 @@ class PRTMainWindow(QMainWindow):
             page_widget = self.pages[target_key]
             self.stacked_widget.setCurrentWidget(page_widget)
 
-            if hasattr(self, "sidebar") and hasattr(self.sidebar, "set_active_route"):
+            if hasattr(self, "sidebar") and hasattr(
+                self.sidebar, "set_active_route"
+            ):
                 self.sidebar.set_active_route(target_key)
 
             if hasattr(page_widget, "on_show") and callable(page_widget.on_show):

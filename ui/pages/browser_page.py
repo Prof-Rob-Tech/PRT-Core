@@ -3,7 +3,7 @@
 PRT Labs - UI / Pages
 Class: BrowserPage
 Description: Navegador Web integrado com Sniffer de Mídias otimizado.
-             Correção de tela branca no YouTube e carregamento fluido.
+             Correção de layout (barra superior compacta) e carregamento fluido.
 ===========================================================
 """
 
@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -95,10 +96,14 @@ class BrowserPage(QWidget):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(10)
 
+        # --- BARRA SUPERIOR DE NAVEGAÇÃO ---
         nav_card = QFrame()
         nav_card.setObjectName("cardFrame")
+        nav_card.setFixedHeight(52)  # Trava a altura para não esticar verticalmente
+        nav_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
         nav_layout = QHBoxLayout(nav_card)
-        nav_layout.setContentsMargins(8, 8, 8, 8)
+        nav_layout.setContentsMargins(8, 6, 8, 6)
 
         self.btn_back = QPushButton("◀")
         self.btn_forward = QPushButton("▶")
@@ -128,12 +133,15 @@ class BrowserPage(QWidget):
         nav_layout.addWidget(btn_go)
         nav_layout.addWidget(self.btn_sniffer)
 
-        layout.addWidget(nav_card)
+        # Adiciona a barra superior com stretch=0 (altura fixa)
+        layout.addWidget(nav_card, 0)
 
+        # --- ÁREA PRINCIPAL DE CONTEÚDO ---
         content_layout = QHBoxLayout()
 
         if HAS_WEBENGINE:
             self.web_view = QWebEngineView()
+            self.web_view.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
             page = self.web_view.page()
 
             # Identificação do Chrome para compatibilidade total
@@ -208,7 +216,9 @@ class BrowserPage(QWidget):
         sniffer_layout.addWidget(btn_clear)
 
         content_layout.addWidget(self.card_sniffer)
-        layout.addLayout(content_layout)
+
+        # Adiciona o container do navegador com stretch=1 (ocupa todo o resto)
+        layout.addLayout(content_layout, 1)
 
     def _on_url_changed(self, qurl: QUrl) -> None:
         url_str = qurl.toString()
@@ -300,4 +310,11 @@ class BrowserPage(QWidget):
         self.download_requested.emit(url, media_type, quality, title)
 
     def _clear_detected_medias(self) -> None:
-        self.detected_medias.clear
+        self.detected_medias.clear()
+        self.btn_sniffer.setText("🎬 Mídias (0)")
+
+        # Limpa os cards de mídia exibidos na lista
+        while self.layout_media_list.count() > 1:
+            item = self.layout_media_list.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()

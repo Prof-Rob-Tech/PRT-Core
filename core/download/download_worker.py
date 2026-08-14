@@ -182,7 +182,20 @@ class UniversoCourseMapper:
         if not HAS_PLAYWRIGHT:
             return lessons
 
-        print(f"🗺️ [CourseMapper] Mapeando estrutura de aulas em JS: {course_url}")
+        print(f"🗺️ [CourseMapper] Mapeando estrutura de aulas: {course_url}")
+        
+        # 1. Carrega o arquivo JavaScript da pasta resources
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        js_path = os.path.join(base_dir, "resources", "extract_course.js")
+
+        try:
+            with open(js_path, "r", encoding="utf-8") as f:
+                js_script = f.read()
+        except Exception as e:
+            print(f"❌ [CourseMapper] Erro ao ler extract_course.js: {e}")
+            return lessons
+
+        # 2. Executa a navegação e roda o script
         with sync_playwright() as p:
             browser = p.chromium.launch(
                 headless=False,
@@ -203,6 +216,7 @@ class UniversoCourseMapper:
             page = context.new_page()
 
             try:
+                # Login
                 if self.username and self.password:
                     page.goto("https://universotecnico.com/wp-login.php", timeout=30000)
                     page.wait_for_load_state("domcontentloaded")
@@ -218,54 +232,12 @@ class UniversoCourseMapper:
                         submit_btn.click()
                         page.wait_for_timeout(3000)
 
+                # Acessa a página do curso
                 page.goto(course_url, timeout=35000)
                 page.wait_for_load_state("domcontentloaded")
                 time.sleep(3)
 
-                js_script = """
-                () => {
-                    const acordions = document.querySelectorAll('.accordion-header, .elementor-accordion-item, [class*="module"], [class*="section"], [class*="accordion"], .toggle-title');
-                    acordions.forEach(el => { try { el.click(); } catch(e) {} });
-
-                    const lessons = [];
-                    const links = Array.from(document.querySelectorAll('a[href*="/cursos/"], a[href*="/aula/"]'));
-
-                    links.forEach((a, idx) => {
-                        const href = a.href;
-                        const title = a.innerText.replace(/\\n/g, ' ').trim();
-
-                        if (href && title && title.length > 1 && !title.toLowerCase().includes('sair do curso')) {
-                            let moduleTitle = "Módulo Único";
-                            const parentModule = a.closest('[class*="section"], [class*="module"], [class*="accordion"], .widget');
-                            if (parentModule) {
-                                const header = parentModule.querySelector('h1, h2, h3, h4, header, [class*="title"]');
-                                if (header) {
-                                    moduleTitle = header.innerText.replace(/\\n/g, ' ').trim();
-                                }
-                            }
-
-                            lessons.push({
-                                index: idx + 1,
-                                title: title,
-                                url: href,
-                                module: moduleTitle
-                            });
-                        }
-                    });
-
-                    const uniqueLessons = [];
-                    const seenUrls = new Set();
-                    for (const item of lessons) {
-                        if (!seenUrls.has(item.url)) {
-                            seenUrls.add(item.url);
-                            uniqueLessons.push(item);
-                        }
-                    }
-
-                    return uniqueLessons;
-                }
-                """
-
+                # Executa o arquivo JavaScript
                 lessons = page.evaluate(js_script)
                 browser.close()
                 print(f"✅ [CourseMapper] Total de {len(lessons)} aulas mapeadas com sucesso via JS!")
@@ -278,7 +250,6 @@ class UniversoCourseMapper:
                     pass
 
         return lessons
-
 
 class PRTCourseMapperWorker(QThread):
     """Thread em segundo plano para mapear todas as aulas do curso."""

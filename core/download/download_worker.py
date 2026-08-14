@@ -1,34 +1,41 @@
 """
 ===========================================================
 PRT Labs - Core / Download
-Class: PRTDownloadWorker & UniversoExtractor
+Class: PRTDownloadWorker, PRTCourseMapperWorker & UniversoExtractor
 
 Description:
     Worker assíncrono para download de mídias com Sniffer de Rede,
-    Bypass de Cookie WP e integração com FFmpeg automático.
+    Bypass de Cookie WP, limpeza de caracteres ANSI e Mapeador de Cursos.
 ===========================================================
 """
 
 import os
 import re
 import time
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple, Optional, List
 from PySide6.QtCore import QThread, Signal
 import yt_dlp
 
-# Tenta importar o Playwright
 try:
     from playwright.sync_api import sync_playwright
     HAS_PLAYWRIGHT = True
 except ImportError:
     HAS_PLAYWRIGHT = False
 
-# Tenta obter o executável do FFmpeg automaticamente
 try:
     import imageio_ffmpeg
     FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
 except ImportError:
     FFMPEG_PATH = None
+
+
+def clean_ansi(text: str) -> str:
+    """Remove códigos de cor e formatação ANSI do terminal."""
+    if not text:
+        return ""
+    ansi_regex = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+    cleaned = ansi_regex.sub('', str(text))
+    return cleaned.replace('\r', '').strip()
 
 
 class UniversoExtractor:
@@ -81,7 +88,7 @@ class UniversoExtractor:
             page.on("request", onRequest)
 
             try:
-                # 1. Autenticação primária no wp-login.php
+                # 1. Autenticação no wp-login.php
                 if self.username and self.password:
                     print("🔑 [UniversoExtractor] Acessando tela de login principal...")
                     page.goto("https://universotecnico.com/wp-login.php", timeout=30000)
@@ -96,7 +103,7 @@ class UniversoExtractor:
                         user_field.fill(self.username)
                         pass_field.fill(self.password)
                         submit_btn.click()
-                        print("✅ [UniversoExtractor] Form enviado. Aguardando processamento...")
+                        print("✅ [UniversoExtractor] Form enviado. Aguardando...")
                         page.wait_for_timeout(3000)
 
                 # 2. Navega até a página da aula
@@ -105,10 +112,10 @@ class UniversoExtractor:
                 page.wait_for_load_state("domcontentloaded")
                 time.sleep(2)
 
-                # 3. Plano B: Se o login falhou e o botão 'Entrar' ainda está visível na aula
+                # 3. Plano B: Clica em 'Entrar' na aula se necessário
                 entrar_btn = page.locator("a:has-text('Entrar'), button:has-text('Entrar')").first
                 if entrar_btn.is_visible(timeout=2000):
-                    print("🔑 [UniversoExtractor] Login primário pendente. Clicando no botão 'Entrar' da aula...")
+                    print("🔑 [UniversoExtractor] Login primário pendente. Clicando em 'Entrar'...")
                     entrar_btn.click()
                     page.wait_for_timeout(2000)
 
@@ -125,7 +132,7 @@ class UniversoExtractor:
                         page.wait_for_load_state("domcontentloaded")
                         time.sleep(2)
 
-                # 4. Interação para ativar o player de vídeo
+                # 4. Interação para forçar o player
                 page.evaluate("window.scrollTo(0, document.body.scrollHeight / 3)")
                 play_selectors = ["iframe", "video", ".vjs-big-play-button", "button", "div[class*='player']"]
                 for selector in play_selectors:
@@ -167,8 +174,153 @@ class UniversoExtractor:
             return page_url, {"Referer": "https://universotecnico.com/"}
 
 
+class UniversoCourseMapper:
+    """Mapeia todas as aulas do curso através do menu lateral."""
+
+    def __init__(self, username: Optional[str] = None, password: Optional[str] = None) -> None:
+        self.username = username
+        self.password = password
+
+    def map_course(self, course_url: str) -> List[Dict[str, str]]:
+        lessons = []
+        if not HAS_PLAYWRIGHT:
+            return lessons
+
+        print(f"🗺️ [CourseMapper] Mapeando estrutura de aulas em: {course_url}")
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=False,
+                args=["--disable-blink-features=AutomationControlled"]
+            )
+            context = browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0 Safari/537.36",
+                viewport={"width": 1280, "height": 720}
+            )
+
+            context.add_cookies([{
+                "name": "wordpress_test_cookie",
+                "value": "WP+Cookie+check",
+                "domain": "universotecnico.com",
+                "path": "/"
+            }])
+
+            page = context.new_page()
+
+            try:
+                # Login
+                if self.username and self.password:
+                    page.goto("https://universotecnico.com/wp-login.php", timeout=30000)
+                    page.wait_for_load_state("domcontentloaded")
+                    time.sleep(1)
+
+                    user_field = page.locator("input[name='log'], #username, input[type='email']").first
+                    pass_field = page.locator("input[name='pwd'], #password, input[type='password']").first
+                    submit_btn = page.locator("#wp-submit, button[name='login'], input[type='submit']").first
+
+                    if user_field.is_visible(timeout=3000):
+                        user_field.fill(self.username)
+                        pass_field.fill(self.password)
+                        submit_btn.click()
+                        page.wait_for_timeout(3000)
+
+                page.goto(course_url, timeout=35000)
+                page.wait_for_load_state("domcontentloaded")
+                time.sleep(3)
+
+                # Expande todos os acordeões de módulos caso existam
+                accordions = page.locator(".accordion-header, .elementor-accordion-item, .lesson-section-header, div[class*='module'], div[class*='section']").all()
+                for acc in accordions:
+                    try:
+                        acc.click(timeout=1000)
+                    except Exception:
+                        pass
+
+                page.wait_for_timeout(1000)
+
+                # Busca todos os links de aulas na barra lateral
+                links = page.locator("a[href*='/cursos/'], a[href*='/aula/'], a[href*='/aulas/']").all()
+
+                seen_urls = set()
+                idx = 1
+
+                for link in links:
+                    try:
+                        href = link.get_attribute("href")
+                        text = link.inner_text().strip()
+
+                        if href and href not in seen_urls and len(text) > 2 and "sair" not in text.lower():
+                            seen_urls.add(href)
+
+                            # Tenta identificar nome do módulo pai se existente
+                            module_name = "Módulo Único"
+                            try:
+                                parent_module = link.locator("xpath=ancestor::div[contains(@class, 'section') or contains(@class, 'module') or contains(@class, 'accordion')]").first
+                                if parent_module.is_visible():
+                                    header = parent_module.locator("h2, h3, h4, header, .title").first
+                                    if header.is_visible():
+                                        module_name = header.inner_text().strip()
+                            except Exception:
+                                pass
+
+                            lessons.append({
+                                "index": idx,
+                                "title": text.replace("\n", " "),
+                                "url": href,
+                                "module": module_name
+                            })
+                            idx += 1
+                    except Exception:
+                        pass
+
+                browser.close()
+                print(f"✅ [CourseMapper] Total de {len(lessons)} aulas mapeadas com sucesso!")
+
+            except Exception as e:
+                print(f"⚠️ [CourseMapper] Erro ao mapear curso: {e}")
+                try:
+                    browser.close()
+                except Exception:
+                    pass
+
+        return lessons
+
+
+class PRTCourseMapperWorker(QThread):
+    """Thread em segundo plano para mapear todas as aulas do curso."""
+
+    course_mapped = Signal(list)
+    status_changed = Signal(str)
+    mapping_error = Signal(str)
+
+    def __init__(
+        self,
+        course_url: str,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
+        parent=None
+    ) -> None:
+        super().__init__(parent)
+        self.course_url = course_url
+        self.username = username
+        self.password = password
+
+    def run(self) -> None:
+        self.status_changed.emit("Mapeando grade do curso e aulas na plataforma...")
+        try:
+            mapper = UniversoCourseMapper(username=self.username, password=self.password)
+            lessons = mapper.map_course(self.course_url)
+
+            if lessons:
+                self.course_mapped.emit(lessons)
+                self.status_changed.emit(f"Sucesso! {len(lessons)} aulas encontradas na plataforma.")
+            else:
+                self.mapping_error.emit("Nenhuma aula foi encontrada. Verifique as credenciais de acesso.")
+        except Exception as e:
+            self.mapping_error.emit(f"Erro no mapeamento: {clean_ansi(str(e))}")
+
+
 class PRTDownloadWorker(QThread):
-    """Worker de download executado em thread separada."""
+    """Worker de download executado em thread separada com suporte a limpeza de caracteres."""
 
     progress_changed = Signal(dict)
     status_changed = Signal(str, str)
@@ -270,7 +422,6 @@ class PRTDownloadWorker(QThread):
             "merge_output_format": "mp4",
         }
 
-        # Aponta o FFmpeg baixado via imageio-ffmpeg se disponível
         if FFMPEG_PATH:
             ydl_opts["ffmpeg_location"] = FFMPEG_PATH
 
@@ -296,8 +447,7 @@ class PRTDownloadWorker(QThread):
 
         except Exception as e:
             if not self._is_cancelled:
-                # Remove códigos ANSI de cor da mensagem de erro
-                err_msg = re.sub(r'\x1b\[[0-9;]*m', '', str(e))
+                err_msg = clean_ansi(str(e))
                 print(f"❌ [PRT Downloader Error]: {err_msg}")
                 self.status_changed.emit("ERROR", err_msg)
                 self.download_error.emit(err_msg)
@@ -313,8 +463,8 @@ class PRTDownloadWorker(QThread):
             percent = (
                 (downloaded_bytes / total_bytes * 100) if total_bytes > 0 else 0.0
             )
-            speed = d.get("_speed_str", "N/A")
-            eta = d.get("_eta_str", "N/A")
+            speed = clean_ansi(d.get("_speed_str", "N/A"))
+            eta = clean_ansi(d.get("_eta_str", "N/A"))
 
             self.progress_changed.emit(
                 {

@@ -5,7 +5,7 @@ Class: PRTDownloadWorker, PRTCourseMapperWorker & UniversoExtractor
 
 Description:
     Worker assíncrono para download de mídias com Sniffer de Rede,
-    Bypass de Cookie WP, limpeza de caracteres ANSI e Mapeador de Cursos.
+    Bypass de Cookie WP, limpeza de caracteres ANSI e Extrator via JS.
 ===========================================================
 """
 
@@ -88,7 +88,6 @@ class UniversoExtractor:
             page.on("request", onRequest)
 
             try:
-                # 1. Autenticação no wp-login.php
                 if self.username and self.password:
                     print("🔑 [UniversoExtractor] Acessando tela de login principal...")
                     page.goto("https://universotecnico.com/wp-login.php", timeout=30000)
@@ -106,13 +105,11 @@ class UniversoExtractor:
                         print("✅ [UniversoExtractor] Form enviado. Aguardando...")
                         page.wait_for_timeout(3000)
 
-                # 2. Navega até a página da aula
                 print(f"🌐 [UniversoExtractor] Carregando a aula: {page_url}")
                 page.goto(page_url, timeout=35000)
                 page.wait_for_load_state("domcontentloaded")
                 time.sleep(2)
 
-                # 3. Plano B: Clica em 'Entrar' na aula se necessário
                 entrar_btn = page.locator("a:has-text('Entrar'), button:has-text('Entrar')").first
                 if entrar_btn.is_visible(timeout=2000):
                     print("🔑 [UniversoExtractor] Login primário pendente. Clicando em 'Entrar'...")
@@ -132,7 +129,6 @@ class UniversoExtractor:
                         page.wait_for_load_state("domcontentloaded")
                         time.sleep(2)
 
-                # 4. Interação para forçar o player
                 page.evaluate("window.scrollTo(0, document.body.scrollHeight / 3)")
                 play_selectors = ["iframe", "video", ".vjs-big-play-button", "button", "div[class*='player']"]
                 for selector in play_selectors:
@@ -175,7 +171,7 @@ class UniversoExtractor:
 
 
 class UniversoCourseMapper:
-    """Mapeia todas as aulas do curso através do menu lateral."""
+    """Mapeia todas as aulas do curso através de injeção JavaScript no DOM."""
 
     def __init__(self, username: Optional[str] = None, password: Optional[str] = None) -> None:
         self.username = username
@@ -186,7 +182,7 @@ class UniversoCourseMapper:
         if not HAS_PLAYWRIGHT:
             return lessons
 
-        print(f"🗺️ [CourseMapper] Mapeando estrutura de aulas em: {course_url}")
+        print(f"🗺️ [CourseMapper] Mapeando estrutura de aulas em JS: {course_url}")
         with sync_playwright() as p:
             browser = p.chromium.launch(
                 headless=False,
@@ -207,7 +203,6 @@ class UniversoCourseMapper:
             page = context.new_page()
 
             try:
-                # Login
                 if self.username and self.password:
                     page.goto("https://universotecnico.com/wp-login.php", timeout=30000)
                     page.wait_for_load_state("domcontentloaded")
@@ -227,53 +222,53 @@ class UniversoCourseMapper:
                 page.wait_for_load_state("domcontentloaded")
                 time.sleep(3)
 
-                # Expande todos os acordeões de módulos caso existam
-                accordions = page.locator(".accordion-header, .elementor-accordion-item, .lesson-section-header, div[class*='module'], div[class*='section']").all()
-                for acc in accordions:
-                    try:
-                        acc.click(timeout=1000)
-                    except Exception:
-                        pass
+                js_script = """
+                () => {
+                    const acordions = document.querySelectorAll('.accordion-header, .elementor-accordion-item, [class*="module"], [class*="section"], [class*="accordion"], .toggle-title');
+                    acordions.forEach(el => { try { el.click(); } catch(e) {} });
 
-                page.wait_for_timeout(1000)
+                    const lessons = [];
+                    const links = Array.from(document.querySelectorAll('a[href*="/cursos/"], a[href*="/aula/"]'));
 
-                # Busca todos os links de aulas na barra lateral
-                links = page.locator("a[href*='/cursos/'], a[href*='/aula/'], a[href*='/aulas/']").all()
+                    links.forEach((a, idx) => {
+                        const href = a.href;
+                        const title = a.innerText.replace(/\\n/g, ' ').trim();
 
-                seen_urls = set()
-                idx = 1
+                        if (href && title && title.length > 1 && !title.toLowerCase().includes('sair do curso')) {
+                            let moduleTitle = "Módulo Único";
+                            const parentModule = a.closest('[class*="section"], [class*="module"], [class*="accordion"], .widget');
+                            if (parentModule) {
+                                const header = parentModule.querySelector('h1, h2, h3, h4, header, [class*="title"]');
+                                if (header) {
+                                    moduleTitle = header.innerText.replace(/\\n/g, ' ').trim();
+                                }
+                            }
 
-                for link in links:
-                    try:
-                        href = link.get_attribute("href")
-                        text = link.inner_text().strip()
+                            lessons.push({
+                                index: idx + 1,
+                                title: title,
+                                url: href,
+                                module: moduleTitle
+                            });
+                        }
+                    });
 
-                        if href and href not in seen_urls and len(text) > 2 and "sair" not in text.lower():
-                            seen_urls.add(href)
+                    const uniqueLessons = [];
+                    const seenUrls = new Set();
+                    for (const item of lessons) {
+                        if (!seenUrls.has(item.url)) {
+                            seenUrls.add(item.url);
+                            uniqueLessons.push(item);
+                        }
+                    }
 
-                            # Tenta identificar nome do módulo pai se existente
-                            module_name = "Módulo Único"
-                            try:
-                                parent_module = link.locator("xpath=ancestor::div[contains(@class, 'section') or contains(@class, 'module') or contains(@class, 'accordion')]").first
-                                if parent_module.is_visible():
-                                    header = parent_module.locator("h2, h3, h4, header, .title").first
-                                    if header.is_visible():
-                                        module_name = header.inner_text().strip()
-                            except Exception:
-                                pass
+                    return uniqueLessons;
+                }
+                """
 
-                            lessons.append({
-                                "index": idx,
-                                "title": text.replace("\n", " "),
-                                "url": href,
-                                "module": module_name
-                            })
-                            idx += 1
-                    except Exception:
-                        pass
-
+                lessons = page.evaluate(js_script)
                 browser.close()
-                print(f"✅ [CourseMapper] Total de {len(lessons)} aulas mapeadas com sucesso!")
+                print(f"✅ [CourseMapper] Total de {len(lessons)} aulas mapeadas com sucesso via JS!")
 
             except Exception as e:
                 print(f"⚠️ [CourseMapper] Erro ao mapear curso: {e}")
@@ -305,7 +300,7 @@ class PRTCourseMapperWorker(QThread):
         self.password = password
 
     def run(self) -> None:
-        self.status_changed.emit("Mapeando grade do curso e aulas na plataforma...")
+        self.status_changed.emit("Mapeando grade do curso e aulas via JS...")
         try:
             mapper = UniversoCourseMapper(username=self.username, password=self.password)
             lessons = mapper.map_course(self.course_url)
@@ -320,7 +315,7 @@ class PRTCourseMapperWorker(QThread):
 
 
 class PRTDownloadWorker(QThread):
-    """Worker de download executado em thread separada com suporte a limpeza de caracteres."""
+    """Worker de download executado em thread separada com limpeza de caracteres."""
 
     progress_changed = Signal(dict)
     status_changed = Signal(str, str)

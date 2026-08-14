@@ -8,7 +8,8 @@ Description: Template genérico e adaptável para conectores com suporte a
 """
 
 import os
-from PySide6.QtCore import Qt, QThread, Signal
+import traceback
+from PySide6.QtCore import Qt, QThread, Signal, Slot
 from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
@@ -30,14 +31,14 @@ try:
     from core.download.download_worker import PRTDownloadWorker, UniversoCourseMapper
 except ImportError:
     try:
-        from download_worker import PRTDownloadWorker, UniversoCourseMapper # type: ignore
+        from download_worker import PRTDownloadWorker, UniversoCourseMapper  # type: ignore
     except ImportError:
         PRTDownloadWorker = None
         UniversoCourseMapper = None
 
 
 class CourseMapThread(QThread):
-    """Thread em segundo plano para não travar a interface durante o mapeamento com Playwright."""
+    """Thread em segundo plano para mapeamento com tratamento rigoroso de erros e timeouts."""
     finished_signal = Signal(list)
     error_signal = Signal(str)
 
@@ -50,14 +51,21 @@ class CourseMapThread(QThread):
     def run(self):
         try:
             if not UniversoCourseMapper:
-                self.error_signal.emit("Módulo UniversoCourseMapper não encontrado.")
+                self.error_signal.emit("Módulo 'UniversoCourseMapper' não encontrado em 'download_worker.py'.")
                 return
 
             mapper = UniversoCourseMapper(username=self.username, password=self.password)
             lessons = mapper.map_course(self.course_url)
+
+            if not lessons:
+                self.error_signal.emit("Nenhuma aula foi encontrada. Verifique se o link ou login estão corretos.")
+                return
+
             self.finished_signal.emit(lessons)
+
         except Exception as e:
-            self.error_signal.emit(str(e))
+            traceback.print_exc()
+            self.error_signal.emit(f"Falha no Playwright: {str(e)}")
 
 
 class ConnectorPage(QWidget):
@@ -263,7 +271,7 @@ class ConnectorPage(QWidget):
 
         layout.addWidget(card_capture)
 
-        # 3. Tabela de Mídias Concluídas
+        # 3. Tabela de Mídias Concluídas (Expansível para preencher a tela)
         card_table = QFrame()
         card_table.setObjectName("cardFrame")
         card_table.setStyleSheet("""
@@ -297,13 +305,18 @@ class ConnectorPage(QWidget):
 
         self.table = QTableWidget(0, 3)
         self.table.setHorizontalHeaderLabels(["Título / Nome do Arquivo", "Caminho Salvo", "Status"])
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.table.setFixedHeight(180)
+        
+        # --- LARGURAS DAS COLUNAS AJUSTADAS ---
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.Stretch)  # Título expande
+        header.setSectionResizeMode(1, QHeaderView.Stretch)  # Caminho Salvo expande
+        header.setSectionResizeMode(2, QHeaderView.Fixed)    # Status com tamanho fixo
+        self.table.setColumnWidth(2, 120)                    # Largura estreita para o Status
+
+        self.table.setMinimumHeight(220)
 
         t_layout.addWidget(self.table)
-        layout.addWidget(card_table)
-
-        layout.addStretch()
+        layout.addWidget(card_table, 1)
 
     def _select_folder(self) -> None:
         """Abre a caixa de diálogo para escolher a pasta de saída."""
@@ -377,12 +390,12 @@ class ConnectorPage(QWidget):
         self.map_thread.error_signal.connect(self._on_mapping_error)
         self.map_thread.start()
 
+    @Slot(list)
     def _on_mapping_finished(self, lessons: list) -> None:
         """Recebe a lista de aulas mapeadas e inicia o download da primeira."""
-        self.btn_download.setEnabled(True)
-        self.btn_map_course.setEnabled(True)
-
         if not lessons:
+            self.btn_download.setEnabled(True)
+            self.btn_map_course.setEnabled(True)
             self.lbl_status.setText("⚠️ Nenhuma aula foi encontrada na página digitada.")
             return
 
@@ -391,6 +404,7 @@ class ConnectorPage(QWidget):
         self.lbl_status.setText(f"✅ Mapeamento concluído! Total de {len(lessons)} aulas encontradas. Iniciando downloads...")
         self._download_next_in_queue()
 
+    @Slot(str)
     def _on_mapping_error(self, err_msg: str) -> None:
         self.btn_download.setEnabled(True)
         self.btn_map_course.setEnabled(True)
@@ -399,6 +413,9 @@ class ConnectorPage(QWidget):
     def _download_next_in_queue(self) -> None:
         """Baixa em lote uma aula por vez da fila mapeada."""
         if self.current_lesson_index >= len(self.lessons_queue):
+            self.btn_download.setEnabled(True)
+            self.btn_map_course.setEnabled(True)
+            self.progress_bar.setValue(100)
             self.lbl_status.setText(f"🎉 Todos os downloads do curso foram concluídos ({len(self.lessons_queue)} aulas)!")
             return
 
@@ -429,43 +446,67 @@ class ConnectorPage(QWidget):
 
         self.active_worker.start()
 
+    @Slot(str)
+    def _add_completed_to_table(self, file_path: str) -> None:
+        """Adiciona com segurança o item concluído na tabela com normalização de caminho e auto-scroll."""
+        if not file_path:
+            return
+
+        row = self.table.rowCount()
+        self.table.insertRow(row)
+
+        filename = os.path.basename(file_path) or str(file_path)
+        normalized_path = os.path.normpath(str(file_path))
+
+        item_name = QTableWidgetItem(filename)
+        item_path = QTableWidgetItem(normalized_path)
+        item_status = QTableWidgetItem("Concluído")
+
+        item_status.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.table.setItem(row, 0, item_name)
+        self.table.setItem(row, 1, item_path)
+        self.table.setItem(row, 2, item_status)
+
+        self.table.scrollToBottom()
+
+    @Slot(str)
     def _on_batch_finished(self, file_path: str) -> None:
-        self._on_finished(file_path)
+        self._add_completed_to_table(file_path)
         self.current_lesson_index += 1
         self._download_next_in_queue()
 
+    @Slot(str)
     def _on_batch_error(self, err_msg: str) -> None:
         self.lbl_status.setText(f"⚠️ Erro na aula {self.current_lesson_index + 1}: {err_msg}. Pula para a próxima...")
         self.current_lesson_index += 1
         self._download_next_in_queue()
 
+    @Slot(dict)
     def _on_progress(self, data: dict) -> None:
         percent = int(data.get("percent", 0))
         speed = data.get("speed", "N/A")
         eta = data.get("eta", "N/A")
-        
+
         self.progress_bar.setValue(percent)
         self.lbl_status.setText(f"⬇️ Baixando: {percent}% | Velocidade: {speed} | Restante: {eta}")
 
+    @Slot(str, str)
     def _on_status(self, code: str, msg: str) -> None:
         if code == "DOWNLOADING":
             self.lbl_status.setText(f"⏳ {msg}")
         elif code == "COMPLETED":
             self.lbl_status.setText(f"✅ {msg}")
 
+    @Slot(str)
     def _on_finished(self, file_path: str) -> None:
         self.btn_download.setEnabled(True)
         self.btn_map_course.setEnabled(True)
         self.progress_bar.setValue(100)
+        self.lbl_status.setText("✅ Download concluído com sucesso!")
+        self._add_completed_to_table(file_path)
 
-        row = self.table.rowCount()
-        self.table.insertRow(row)
-        
-        filename = os.path.basename(file_path)
-        self.table.setItem(row, 0, QTableWidgetItem(filename))
-        self.table.setItem(row, 1, QTableWidgetItem(file_path))
-        self.table.setItem(row, 2, QTableWidgetItem("Concluído"))
-
+    @Slot(str)
     def _on_error(self, err_msg: str) -> None:
         self.btn_download.setEnabled(True)
         self.btn_map_course.setEnabled(True)

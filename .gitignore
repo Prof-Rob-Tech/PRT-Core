@@ -1,21 +1,13 @@
-# Ambientes Virtuais
+# Ambiente Virtual e Python
 .venv/
 venv/
-env/
-
-# Caches e Compilados do Python
 __pycache__/
-*.py[cod]
-*$py.class
+*.pyc
 
-# PySide6 / Qt Caches
-*.qrc.py
+# Arquivos de mídia baixados
+*.mp4
+*.m3u8
+*.ts
 
-# Arquivos de IDE
+# VS Code / Configurações locais
 .vscode/
-.idea/
-
-# Bancos de Dados e Configurações Locais
-*.db
-*.sqlite3
-config.json

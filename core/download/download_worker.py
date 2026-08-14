@@ -171,83 +171,98 @@ class UniversoExtractor:
 
 
 class UniversoCourseMapper:
-    """Mapeia todas as aulas do curso através de injeção JavaScript no DOM."""
-
-    def __init__(self, username: Optional[str] = None, password: Optional[str] = None) -> None:
+    """Mapeador otimizado para extrair a lista completa de aulas do Universo Técnico."""
+    
+    def __init__(self, username: str = None, password: str = None):
         self.username = username
         self.password = password
 
-    def map_course(self, course_url: str) -> List[Dict[str, str]]:
+    def map_course(self, course_url: str) -> list:
         lessons = []
-        if not HAS_PLAYWRIGHT:
-            return lessons
-
-        print(f"🗺️ [CourseMapper] Mapeando estrutura de aulas: {course_url}")
-        
-        # 1. Carrega o arquivo JavaScript da pasta resources
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        js_path = os.path.join(base_dir, "resources", "extract_course.js")
-
         try:
-            with open(js_path, "r", encoding="utf-8") as f:
-                js_script = f.read()
-        except Exception as e:
-            print(f"❌ [CourseMapper] Erro ao ler extract_course.js: {e}")
-            return lessons
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            raise Exception("Playwright não está instalado. Execute no terminal: pip install playwright && playwright install")
 
-        # 2. Executa a navegação e roda o script
         with sync_playwright() as p:
-            browser = p.chromium.launch(
-                headless=False,
-                args=["--disable-blink-features=AutomationControlled"]
-            )
+            # Abre navegador
+            browser = p.chromium.launch(headless=True)
             context = browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0 Safari/537.36",
-                viewport={"width": 1280, "height": 720}
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             )
-
-            context.add_cookies([{
-                "name": "wordpress_test_cookie",
-                "value": "WP+Cookie+check",
-                "domain": "universotecnico.com",
-                "path": "/"
-            }])
-
             page = context.new_page()
 
-            try:
-                # Login
-                if self.username and self.password:
-                    page.goto("https://universotecnico.com/wp-login.php", timeout=30000)
-                    page.wait_for_load_state("domcontentloaded")
-                    time.sleep(1)
-
-                    user_field = page.locator("input[name='log'], #username, input[type='email']").first
-                    pass_field = page.locator("input[name='pwd'], #password, input[type='password']").first
-                    submit_btn = page.locator("#wp-submit, button[name='login'], input[type='submit']").first
-
-                    if user_field.is_visible(timeout=3000):
-                        user_field.fill(self.username)
-                        pass_field.fill(self.password)
-                        submit_btn.click()
-                        page.wait_for_timeout(3000)
-
-                # Acessa a página do curso
-                page.goto(course_url, timeout=35000)
-                page.wait_for_load_state("domcontentloaded")
-                time.sleep(3)
-
-                # Executa o arquivo JavaScript
-                lessons = page.evaluate(js_script)
-                browser.close()
-                print(f"✅ [CourseMapper] Total de {len(lessons)} aulas mapeadas com sucesso via JS!")
-
-            except Exception as e:
-                print(f"⚠️ [CourseMapper] Erro ao mapear curso: {e}")
+            # 1. Realiza Login no Universo Técnico caso usuário e senha tenham sido informados
+            if self.username and self.password:
                 try:
-                    browser.close()
+                    page.goto("https://universotecnico.com/minha-conta/", timeout=30000)
+                    page.wait_for_load_state("domcontentloaded")
+
+                    # Preenche campos de login se existirem
+                    if page.locator("input[name='username'], input[name='log']").count() > 0:
+                        page.fill("input[name='username'], input[name='log']", self.username)
+                        page.fill("input[name='password'], input[name='pwd']", self.password)
+                        page.click("button[name='login'], input[type='submit']")
+                        page.wait_for_timeout(3000)
+                except Exception as e:
+                    print(f"[Mapper] Aviso na tentativa de login: {e}")
+
+            # 2. Navega até a página principal do curso
+            page.goto(course_url, timeout=40000)
+            page.wait_for_load_state("domcontentloaded")
+            page.wait_for_timeout(3000)  # Aguarda carregamento de elementos dinâmicos/JS
+
+            # 3. Tenta expandir sanfonas/módulos fechados na página
+            try:
+                accordion_headers = page.locator(".elementor-accordion-title, .tutor-accordion-item-header, details summary").all()
+                for header in accordion_headers:
+                    if header.is_visible():
+                        header.click(timeout=1000)
+                        page.wait_for_timeout(200)
+            except Exception:
+                pass
+
+            # 4. Captura todos os links de aulas que contêm '/aula/' no endereço
+            anchor_elements = page.locator("a[href*='/aula/']").all()
+
+            seen_urls = set()
+            for anchor in anchor_elements:
+                try:
+                    href = anchor.get_attribute("href")
+                    if not href or href in seen_urls:
+                        continue
+
+                    # Ignora links irrelevantes
+                    if "#" in href and not href.startswith("http"):
+                        continue
+
+                    seen_urls.add(href)
+                    
+                    # Trata o título da aula
+                    raw_text = anchor.inner_text().strip()
+                    title = " ".join(raw_text.split()) if raw_text else f"Aula {len(lessons) + 1}"
+
+                    # Tenta capturar o nome do Módulo
+                    module_name = "Módulo Único"
+                    try:
+                        parent_module = anchor.locator("xpath=ancestor::*[contains(@class, 'accordion') or contains(@class, 'module') or contains(@class, 'tutor-accordion')][1]")
+                        if parent_module.count() > 0:
+                            header_text = parent_module.locator("h2, h3, h4, .title").first.inner_text()
+                            if header_text.strip():
+                                module_name = " ".join(header_text.split())
+                    except Exception:
+                        pass
+
+                    lessons.append({
+                        "url": href,
+                        "title": title,
+                        "module": module_name,
+                        "index": len(lessons) + 1
+                    })
                 except Exception:
-                    pass
+                    continue
+
+            browser.close()
 
         return lessons
 

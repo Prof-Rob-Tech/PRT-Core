@@ -1,13 +1,25 @@
-# Ambiente Virtual e Python
+# Ambiente Virtual
 .venv/
 venv/
+env/
+
+# Cache do Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 
-# Arquivos de mídia baixados
+# Arquivos de IDE / Editores
+.vscode/
+.idea/
+
+# Arquivos baixados / Mídia de teste
 *.mp4
 *.m3u8
 *.ts
+*.mp3
+downloads/
+PRT_Nexus/
 
-# VS Code / Configurações locais
-.vscode/
+# Logs e arquivos temporários
+*.log

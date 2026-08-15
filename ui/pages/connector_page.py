@@ -3,11 +3,12 @@
 PRT Labs - UI / Pages
 Class: ConnectorPage
 Description: Template genérico e adaptável para conectores com suporte a
-             seletor de qualidade, Login/Senha, criação de estrutura de 
-             pastas e downloads via PRTDownloadWorker.
+             seletor de qualidade, Login/Senha, detecção automática do
+             nome do curso, criação de estrutura de pastas e downloads.
 ===========================================================
 """
 
+import inspect
 import os
 import traceback
 from PySide6.QtCore import Qt, QThread, Signal, Slot
@@ -39,8 +40,8 @@ except ImportError:
 
 
 class CourseMapThread(QThread):
-    """Thread em segundo plano para mapeamento com tratamento rigoroso de erros e timeouts."""
-    finished_signal = Signal(list)
+    """Thread em segundo plano para mapeamento com tratamento rigoroso de erros e extração do título do curso."""
+    finished_signal = Signal(object)  # Aceita dict ou list
     error_signal = Signal(str)
 
     def __init__(self, course_url, username, password, parent=None):
@@ -56,13 +57,13 @@ class CourseMapThread(QThread):
                 return
 
             mapper = UniversoCourseMapper(username=self.username, password=self.password)
-            lessons = mapper.map_course(self.course_url)
+            result = mapper.map_course(self.course_url)
 
-            if not lessons:
+            if not result:
                 self.error_signal.emit("Nenhuma aula foi encontrada. Verifique se o link ou login estão corretos.")
                 return
 
-            self.finished_signal.emit(lessons)
+            self.finished_signal.emit(result)
 
         except Exception as e:
             traceback.print_exc()
@@ -154,7 +155,7 @@ class ConnectorPage(QWidget):
         self.txt_url = QLineEdit()
         self.txt_url.setPlaceholderText(f"Cole o link da aula ou curso do {self.connector_name} aqui (ex: https://...)")
 
-        # Seletor com Opções de Qualidade de Vídeo e Áudio
+        # Seletor de Qualidade
         self.combo_format = QComboBox()
         self.combo_format.addItems([
             "📹 Vídeo - Max Qualidade (MP4)",
@@ -179,7 +180,7 @@ class ConnectorPage(QWidget):
         input_layout.addWidget(self.btn_map_course)
         c_layout.addLayout(input_layout)
 
-        # BLOCO DE AUTENTICAÇÃO / LOGIN DA PLATAFORMA
+        # Autenticação
         auth_group = QVBoxLayout()
         auth_lbl = QLabel(f"🔐 Autenticação / Conta {self.connector_name} (Necessário para áreas pagas):")
         auth_lbl.setStyleSheet("color: #A1A1AA; font-size: 12px; font-weight: bold; margin-top: 4px;")
@@ -198,15 +199,15 @@ class ConnectorPage(QWidget):
         auth_group.addLayout(row_auth)
         c_layout.addLayout(auth_group)
 
-        # Estruturação Hierárquica de Curso
+        # Organização de Pastas do Curso
         struct_group = QVBoxLayout()
-        struct_lbl = QLabel("📁 Organização de Pastas do Curso (Opcional):")
+        struct_lbl = QLabel("📁 Organização de Pastas do Curso (Detectado automaticamente ou personalize):")
         struct_lbl.setStyleSheet("color: #A1A1AA; font-size: 12px; font-weight: bold; margin-top: 4px;")
         struct_group.addWidget(struct_lbl)
 
         # Nome do Curso
         self.txt_course = QLineEdit()
-        self.txt_course.setPlaceholderText("Nome do Curso (ex: Nivel 2 Curso EAD Consertos de placa iPhone)")
+        self.txt_course.setPlaceholderText("Nome do Curso (Sera preenchido automaticamente ao mapear)")
         struct_group.addWidget(self.txt_course)
 
         # Módulo e Aula em paralelo
@@ -325,8 +326,33 @@ class ConnectorPage(QWidget):
         t_layout.addWidget(self.table)
         layout.addWidget(card_table, 1)
 
+    def _create_worker(self, **kwargs):
+        """Instancia PRTDownloadWorker repassando apenas os parâmetros suportados."""
+        if not PRTDownloadWorker:
+            return None
+
+        try:
+            sig = inspect.signature(PRTDownloadWorker.__init__)
+            param_names = set(sig.parameters.keys())
+
+            # Mapeamento de sinonimos de argumentos comuns
+            if "url" in param_names and "media_url" in kwargs:
+                kwargs["url"] = kwargs["media_url"]
+            if "output_dir" in param_names and "output_path" in kwargs:
+                kwargs["output_dir"] = kwargs["output_path"]
+            if "format" in param_names and "media_type" in kwargs:
+                kwargs["format"] = kwargs["media_type"]
+
+            filtered_kwargs = {k: v for k, v in kwargs.items() if k in param_names}
+            return PRTDownloadWorker(**filtered_kwargs)
+        except Exception:
+            return PRTDownloadWorker(
+                media_url=kwargs.get("media_url"),
+                output_path=kwargs.get("output_path"),
+                parent=self,
+            )
+
     def _get_selected_quality_params(self):
-        """Mapeia a seleção do ComboBox para os parâmetros de tipo e qualidade."""
         selected = self.combo_format.currentText()
         if "Áudio" in selected:
             return "audio", "best"
@@ -370,7 +396,7 @@ class ConnectorPage(QWidget):
         self.progress_bar.setValue(0)
         self.lbl_status.setText(f"🚀 Iniciando download ({quality})...")
 
-        self.active_worker = PRTDownloadWorker(
+        self.active_worker = self._create_worker(
             media_url=url,
             output_path=output_dir,
             media_type=media_type,
@@ -384,6 +410,12 @@ class ConnectorPage(QWidget):
             lesson_name=les_name,
             parent=self
         )
+
+        if not self.active_worker:
+            self.lbl_status.setText("❌ Erro ao criar a tarefa de download.")
+            self.btn_download.setEnabled(True)
+            self.btn_map_course.setEnabled(True)
+            return
 
         self.active_worker.progress_changed.connect(self._on_progress)
         self.active_worker.status_changed.connect(self._on_status)
@@ -411,8 +443,22 @@ class ConnectorPage(QWidget):
         self.map_thread.error_signal.connect(self._on_mapping_error)
         self.map_thread.start()
 
-    @Slot(list)
-    def _on_mapping_finished(self, lessons: list) -> None:
+    @Slot(object)
+    def _on_mapping_finished(self, result) -> None:
+        course_title = ""
+        lessons = []
+
+        if isinstance(result, dict):
+            lessons = result.get("lessons", [])
+            course_title = result.get("course_title", "")
+        elif isinstance(result, list):
+            lessons = result
+            if lessons and isinstance(lessons[0], dict):
+                course_title = lessons[0].get("course_title") or lessons[0].get("course") or ""
+
+        if course_title and not self.txt_course.text().strip():
+            self.txt_course.setText(course_title)
+
         if not lessons:
             self.btn_download.setEnabled(True)
             self.btn_map_course.setEnabled(True)
@@ -445,9 +491,17 @@ class ConnectorPage(QWidget):
         user = self.txt_user.text().strip() or None
         pwd = self.txt_pass.text().strip() or None
         output_dir = self.txt_folder.text().strip()
-        course = self.txt_course.text().strip() or "Curso Mapeado"
+        
+        # Prioridade do Nome: 1) Mapeamento automático da aula -> 2) Campo da tela -> 3) Padrão
+        detected_course = lesson.get("course_title") or lesson.get("course")
+        
+        if detected_course and detected_course != "Curso Mapeado":
+            course = detected_course
+            self.txt_course.setText(course)  # Atualiza o campo visível na interface
+        else:
+            course = self.txt_course.text().strip() or "Curso Mapeado"
 
-        self.active_worker = PRTDownloadWorker(
+        self.active_worker = self._create_worker(
             media_url=lesson.get("url"),
             output_path=output_dir,
             media_type=media_type,
@@ -461,74 +515,15 @@ class ConnectorPage(QWidget):
             parent=self
         )
 
+        if not self.active_worker:
+            self.lbl_status.setText(f"⚠️ Erro ao criar worker para aula {self.current_lesson_index + 1}. Pulando...")
+            self.current_lesson_index += 1
+            self._download_next_in_queue()
+            return
+
         self.active_worker.progress_changed.connect(self._on_progress)
         self.active_worker.status_changed.connect(self._on_status)
         self.active_worker.download_finished.connect(self._on_batch_finished)
         self.active_worker.download_error.connect(self._on_batch_error)
 
         self.active_worker.start()
-
-    @Slot(str)
-    def _add_completed_to_table(self, file_path: str) -> None:
-        if not file_path:
-            return
-
-        row = self.table.rowCount()
-        self.table.insertRow(row)
-
-        filename = os.path.basename(file_path) or str(file_path)
-        normalized_path = os.path.normpath(str(file_path))
-
-        item_name = QTableWidgetItem(filename)
-        item_path = QTableWidgetItem(normalized_path)
-        item_status = QTableWidgetItem("Concluído")
-
-        item_status.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        self.table.setItem(row, 0, item_name)
-        self.table.setItem(row, 1, item_path)
-        self.table.setItem(row, 2, item_status)
-
-        self.table.scrollToBottom()
-
-    @Slot(str)
-    def _on_batch_finished(self, file_path: str) -> None:
-        self._add_completed_to_table(file_path)
-        self.current_lesson_index += 1
-        self._download_next_in_queue()
-
-    @Slot(str)
-    def _on_batch_error(self, err_msg: str) -> None:
-        self.lbl_status.setText(f"⚠️ Erro na aula {self.current_lesson_index + 1}: {err_msg}. Pula para a próxima...")
-        self.current_lesson_index += 1
-        self._download_next_in_queue()
-
-    @Slot(dict)
-    def _on_progress(self, data: dict) -> None:
-        percent = int(data.get("percent", 0))
-        speed = data.get("speed", "N/A")
-        eta = data.get("eta", "N/A")
-
-        self.progress_bar.setValue(percent)
-        self.lbl_status.setText(f"⬇️ Baixando: {percent}% | Velocidade: {speed} | Restante: {eta}")
-
-    @Slot(str, str)
-    def _on_status(self, code: str, msg: str) -> None:
-        if code == "DOWNLOADING":
-            self.lbl_status.setText(f"⏳ {msg}")
-        elif code == "COMPLETED":
-            self.lbl_status.setText(f"✅ {msg}")
-
-    @Slot(str)
-    def _on_finished(self, file_path: str) -> None:
-        self.btn_download.setEnabled(True)
-        self.btn_map_course.setEnabled(True)
-        self.progress_bar.setValue(100)
-        self.lbl_status.setText("✅ Download concluído com sucesso!")
-        self._add_completed_to_table(file_path)
-
-    @Slot(str)
-    def _on_error(self, err_msg: str) -> None:
-        self.btn_download.setEnabled(True)
-        self.btn_map_course.setEnabled(True)
-        self.lbl_status.setText(f"❌ Erro no download: {err_msg}")

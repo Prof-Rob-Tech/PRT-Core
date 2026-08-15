@@ -171,100 +171,73 @@ class UniversoExtractor:
 
 
 class UniversoCourseMapper:
-    """Mapeador otimizado para extrair a lista completa de aulas do Universo Técnico."""
-    
+    """Mapeador de cursos do Universo Técnico usando Playwright."""
+
     def __init__(self, username: str = None, password: str = None):
         self.username = username
         self.password = password
 
-    def map_course(self, course_url: str) -> list:
-        lessons = []
-        try:
-            from playwright.sync_api import sync_playwright
-        except ImportError:
-            raise Exception("Playwright não está instalado. Execute no terminal: pip install playwright && playwright install")
+    def map_course(self, url: str) -> dict:
+        from playwright.sync_api import sync_playwright
+
+        lessons_found = []
+        course_title = ""
 
         with sync_playwright() as p:
-            # Abre navegador
-            browser = p.chromium.launch(headless=False)
-            context = browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            )
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context()
             page = context.new_page()
 
-            # 1. Realiza Login no Universo Técnico caso usuário e senha tenham sido informados
+            # Realiza login se as credenciais forem fornecidas
             if self.username and self.password:
                 try:
-                    page.goto("https://universotecnico.com/minha-conta/", timeout=30000)
-                    page.wait_for_load_state("domcontentloaded")
-
-                    # Preenche campos de login se existirem
-                    if page.locator("input[name='username'], input[name='log']").count() > 0:
-                        page.fill("input[name='username'], input[name='log']", self.username)
-                        page.fill("input[name='password'], input[name='pwd']", self.password)
-                        page.click("button[name='login'], input[type='submit']")
-                        page.wait_for_timeout(3000)
+                    page.goto("https://universotecnico.com/minha-conta/", timeout=60000)
+                    page.fill("input[name='username'], input[type='text']", self.username)
+                    page.fill("input[name='password'], input[type='password']", self.password)
+                    page.click("button[type='submit'], input[type='submit']")
+                    page.wait_for_timeout(3000)
                 except Exception as e:
-                    print(f"[Mapper] Aviso na tentativa de login: {e}")
+                    print(f"[Mapper] Aviso no login: {e}")
 
-            # 2. Navega até a página principal do curso
-            page.goto(course_url, timeout=40000)
-            page.wait_for_load_state("domcontentloaded")
-            page.wait_for_timeout(3000)  # Aguarda carregamento de elementos dinâmicos/JS
+            # Acessa a URL do curso
+            page.goto(url, timeout=60000)
+            page.wait_for_timeout(3000)
 
-            # 3. Tenta expandir sanfonas/módulos fechados na página
+            # 🎯 Extração Automática do Nome do Curso (Elemento Amarelo)
             try:
-                accordion_headers = page.locator(".elementor-accordion-title, .tutor-accordion-item-header, details summary").all()
-                for header in accordion_headers:
-                    if header.is_visible():
-                        header.click(timeout=1000)
-                        page.wait_for_timeout(200)
+                for selector in ["h1.entry-title", "h1.course-title", "h1", ".ld-course-title", "h2.entry-title"]:
+                    if page.locator(selector).is_visible():
+                        raw_title = page.locator(selector).first.inner_text().strip()
+                        if raw_title:
+                            # Trata títulos no formato "Nome do Curso por Autor"
+                            course_title = raw_title.split("\n")[0].split(" por ")[0].strip()
+                            break
+                if not course_title:
+                    course_title = page.title().split("-")[0].split("|")[0].strip()
             except Exception:
-                pass
+                course_title = ""
 
-            # 4. Captura todos os links de aulas que contêm '/aula/' no endereço
-            anchor_elements = page.locator("a[href*='/aula/']").all()
-
-            seen_urls = set()
-            for anchor in anchor_elements:
-                try:
-                    href = anchor.get_attribute("href")
-                    if not href or href in seen_urls:
-                        continue
-
-                    # Ignora links irrelevantes
-                    if "#" in href and not href.startswith("http"):
-                        continue
-
-                    seen_urls.add(href)
-                    
-                    # Trata o título da aula
-                    raw_text = anchor.inner_text().strip()
-                    title = " ".join(raw_text.split()) if raw_text else f"Aula {len(lessons) + 1}"
-
-                    # Tenta capturar o nome do Módulo
-                    module_name = "Módulo Único"
-                    try:
-                        parent_module = anchor.locator("xpath=ancestor::*[contains(@class, 'accordion') or contains(@class, 'module') or contains(@class, 'tutor-accordion')][1]")
-                        if parent_module.count() > 0:
-                            header_text = parent_module.locator("h2, h3, h4, .title").first.inner_text()
-                            if header_text.strip():
-                                module_name = " ".join(header_text.split())
-                    except Exception:
-                        pass
-
-                    lessons.append({
-                        "url": href,
+            # Extração de Lições/Aulas na página
+            lesson_elements = page.locator("a[href*='/licoes/'], a[href*='/lessons/'], .ld-item-title").all()
+            
+            for idx, el in enumerate(lesson_elements, 1):
+                title = el.inner_text().strip()
+                href = el.get_attribute("href")
+                if href and title:
+                    lessons_found.append({
+                        "index": idx,
                         "title": title,
-                        "module": module_name,
-                        "index": len(lessons) + 1
+                        "url": href,
+                        "module": "Módulo 1",
+                        "course_title": course_title or "Curso Mapeado"
                     })
-                except Exception:
-                    continue
 
             browser.close()
 
-        return lessons
+        return {
+            "course_title": course_title or "Curso Mapeado",
+            "lessons": lessons_found
+        }
 
 class PRTCourseMapperWorker(QThread):
     """Thread em segundo plano para mapear todas as aulas do curso."""

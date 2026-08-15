@@ -158,6 +158,19 @@ THEME_STYLES = {
             border: none;
             padding: 6px;
         }
+        QProgressBar {
+            background-color: #18181B;
+            border: 1px solid #27272A;
+            border-radius: 6px;
+            height: 20px;
+            text-align: center;
+            color: #ffffff;
+            font-weight: bold;
+        }
+        QProgressBar::chunk {
+            background-color: #6366f1;
+            border-radius: 5px;
+        }
     """,
     "light": """
         QMainWindow, QWidget#centralWidget, QStackedWidget {
@@ -229,6 +242,19 @@ THEME_STYLES = {
             border: none;
             padding: 6px;
         }
+        QProgressBar {
+            background-color: #E2E8F0;
+            border: 1px solid #CBD5E1;
+            border-radius: 6px;
+            height: 20px;
+            text-align: center;
+            color: #0F172A;
+            font-weight: bold;
+        }
+        QProgressBar::chunk {
+            background-color: #3b82f6;
+            border-radius: 5px;
+        }
     """,
     "cyber": """
         QMainWindow, QWidget#centralWidget, QStackedWidget {
@@ -296,6 +322,19 @@ THEME_STYLES = {
             color: #FF007F;
             border: none;
             padding: 6px;
+        }
+        QProgressBar {
+            background-color: #1A0D36;
+            border: 1px solid #FF007F;
+            border-radius: 6px;
+            height: 20px;
+            text-align: center;
+            color: #00F0FF;
+            font-weight: bold;
+        }
+        QProgressBar::chunk {
+            background-color: #FF007F;
+            border-radius: 5px;
         }
     """,
 }

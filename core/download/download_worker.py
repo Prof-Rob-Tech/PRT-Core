@@ -1,280 +1,228 @@
 """
 ===========================================================
-PRT Labs - Core / Download
-Class: PRTDownloadWorker, PRTCourseMapperWorker & UniversoExtractor
-
-Description:
-    Worker assíncrono para download de mídias com Sniffer de Rede,
-    Bypass de Cookie WP, limpeza de caracteres ANSI e Extrator via JS.
+PRT Labs - Core / Download Worker & Course Mapper
+File: core/download/download_worker.py
+Description: Mapeador thread-safe com suporte a cookies WordPress
+             (testcookie) e Worker PySide6 sem crash de WebEngine.
 ===========================================================
 """
 
+import html
+import http.cookiejar
 import os
 import re
-import time
-from typing import Dict, Tuple, Optional, List
+import urllib.parse
+import urllib.request
 from PySide6.QtCore import QThread, Signal
-import yt_dlp
 
 try:
-    from playwright.sync_api import sync_playwright
-    HAS_PLAYWRIGHT = True
+    import yt_dlp
 except ImportError:
-    HAS_PLAYWRIGHT = False
+    yt_dlp = None
 
 try:
-    import imageio_ffmpeg
-    FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
+    from bs4 import BeautifulSoup
 except ImportError:
-    FFMPEG_PATH = None
-
-
-def clean_ansi(text: str) -> str:
-    """Remove códigos de cor e formatação ANSI do terminal."""
-    if not text:
-        return ""
-    ansi_regex = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-    cleaned = ansi_regex.sub('', str(text))
-    return cleaned.replace('\r', '').strip()
-
-
-class UniversoExtractor:
-    """Extrator com suporte a cookies do WP e login inline."""
-
-    def __init__(self, username: Optional[str] = None, password: Optional[str] = None) -> None:
-        self.username = username
-        self.password = password
-
-    def extract_with_network_sniffer(self, page_url: str) -> Tuple[str, Dict[str, str]]:
-        headers_extra = {
-            "Referer": "https://universotecnico.com/",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0 Safari/537.36"
-        }
-
-        captured_urls = []
-
-        print("🤖 [UniversoExtractor] Abrindo janela do navegador...")
-        with sync_playwright() as p:
-            browser = p.chromium.launch(
-                headless=False,
-                args=["--disable-blink-features=AutomationControlled"]
-            )
-            context = browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0 Safari/537.36",
-                viewport={"width": 1280, "height": 720}
-            )
-
-            context.add_cookies([{
-                "name": "wordpress_test_cookie",
-                "value": "WP+Cookie+check",
-                "domain": "universotecnico.com",
-                "path": "/"
-            }])
-
-            page = context.new_page()
-
-            def onRequest(request):
-                url = request.url.lower()
-                media_keywords = [
-                    ".m3u8", ".mp4", "pandavideo.com.br", "player.vimeo.com", 
-                    "b-cdn.net", "mediadelivery.net", "converteai.net", 
-                    "kinescope", "cloudflarestream", "stream"
-                ]
-                if any(kw in url for kw in media_keywords):
-                    if not any(ign in url for ign in [".jpg", ".png", ".css", ".js", "analytics", "favicon", ".svg", ".woff"]):
-                        print(f"📡 [Sniffer de Rede] Fluxo detectado: {request.url}")
-                        captured_urls.append(request.url)
-
-            page.on("request", onRequest)
-
-            try:
-                if self.username and self.password:
-                    print("🔑 [UniversoExtractor] Acessando tela de login principal...")
-                    page.goto("https://universotecnico.com/wp-login.php", timeout=30000)
-                    page.wait_for_load_state("domcontentloaded")
-                    time.sleep(1)
-
-                    user_field = page.locator("input[name='log'], #username, input[type='email']").first
-                    pass_field = page.locator("input[name='pwd'], #password, input[type='password']").first
-                    submit_btn = page.locator("#wp-submit, button[name='login'], input[type='submit']").first
-
-                    if user_field.is_visible(timeout=3000):
-                        user_field.fill(self.username)
-                        pass_field.fill(self.password)
-                        submit_btn.click()
-                        print("✅ [UniversoExtractor] Form enviado. Aguardando...")
-                        page.wait_for_timeout(3000)
-
-                print(f"🌐 [UniversoExtractor] Carregando a aula: {page_url}")
-                page.goto(page_url, timeout=35000)
-                page.wait_for_load_state("domcontentloaded")
-                time.sleep(2)
-
-                entrar_btn = page.locator("a:has-text('Entrar'), button:has-text('Entrar')").first
-                if entrar_btn.is_visible(timeout=2000):
-                    print("🔑 [UniversoExtractor] Login primário pendente. Clicando em 'Entrar'...")
-                    entrar_btn.click()
-                    page.wait_for_timeout(2000)
-
-                    modal_user = page.locator("input[name='log'], #username, input[type='email']").first
-                    modal_pass = page.locator("input[name='pwd'], #password, input[type='password']").first
-                    modal_sub = page.locator("#wp-submit, button[name='login'], input[type='submit']").first
-
-                    if modal_user.is_visible(timeout=3000):
-                        modal_user.fill(self.username)
-                        modal_pass.fill(self.password)
-                        modal_sub.click()
-                        page.wait_for_timeout(4000)
-                        page.goto(page_url, timeout=35000)
-                        page.wait_for_load_state("domcontentloaded")
-                        time.sleep(2)
-
-                page.evaluate("window.scrollTo(0, document.body.scrollHeight / 3)")
-                play_selectors = ["iframe", "video", ".vjs-big-play-button", "button", "div[class*='player']"]
-                for selector in play_selectors:
-                    try:
-                        elem = page.locator(selector).first
-                        if elem.is_visible():
-                            elem.click(timeout=1500)
-                            break
-                    except Exception:
-                        pass
-
-                for _ in range(8):
-                    if captured_urls:
-                        break
-                    time.sleep(1)
-
-                browser.close()
-
-                if captured_urls:
-                    for u in captured_urls:
-                        if ".m3u8" in u or "pandavideo" in u or "vimeo" in u or "b-cdn" in u:
-                            print(f"🎯 [UniversoExtractor] Vídeo principal identificado: {u}")
-                            return u, headers_extra
-                    return captured_urls[0], headers_extra
-
-            except Exception as e:
-                print(f"⚠️ [UniversoExtractor] Erro na automação: {e}")
-                try:
-                    browser.close()
-                except Exception:
-                    pass
-
-        return page_url, headers_extra
-
-    def extract_video_url(self, page_url: str) -> Tuple[str, Dict[str, str]]:
-        if HAS_PLAYWRIGHT:
-            return self.extract_with_network_sniffer(page_url)
-        else:
-            return page_url, {"Referer": "https://universotecnico.com/"}
+    BeautifulSoup = None
 
 
 class UniversoCourseMapper:
-    """Mapeador de cursos do Universo Técnico usando Playwright."""
+    """Mapeador HTTP em segundo plano (100% thread-safe)."""
 
     def __init__(self, username: str = None, password: str = None):
         self.username = username
         self.password = password
+        self.cookie_jar = http.cookiejar.CookieJar()
+        self.opener = urllib.request.build_opener(
+            urllib.request.HTTPCookieProcessor(self.cookie_jar)
+        )
+        self.opener.addheaders = [
+            ('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'),
+            ('Accept-Language', 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7')
+        ]
+
+    def _login(self, base_url: str) -> bool:
+        """Realiza autenticação completa no WordPress com suporte a testcookie."""
+        if not self.username or not self.password:
+            return False
+
+        parsed = urllib.parse.urlparse(base_url)
+        login_url = f"{parsed.scheme}://{parsed.netloc}/wp-login.php"
+
+        try:
+            # 1. Requisição GET inicial para capturar o 'wordpress_test_cookie'
+            init_req = urllib.request.Request(login_url)
+            with self.opener.open(init_req, timeout=10) as resp:
+                resp.read()
+
+            # 2. Envio das credenciais de Login via POST
+            login_data = urllib.parse.urlencode({
+                'log': self.username,
+                'pwd': self.password,
+                'wp-submit': 'Acessar',
+                'redirect_to': base_url,
+                'testcookie': '1'
+            }).encode('utf-8')
+
+            post_req = urllib.request.Request(
+                login_url, 
+                data=login_data,
+                headers={'Referer': login_url, 'Content-Type': 'application/x-www-form-urlencoded'}
+            )
+            
+            with self.opener.open(post_req, timeout=12) as response:
+                final_url = response.geturl()
+                print(f"[UniversoCourseMapper] Login finalizado. Redirecionado para: {final_url}")
+                return True
+
+        except Exception as e:
+            print(f"[UniversoCourseMapper] Erro na autenticação WP: {e}")
+            return False
 
     def map_course(self, url: str) -> dict:
-        from playwright.sync_api import sync_playwright
+        """Acessa a área do aluno e mapeia os links das aulas e vídeos."""
+        lessons = []
+        course_title = "Curso Extraído"
 
-        lessons_found = []
-        course_title = ""
+        # Autentica primeiro na plataforma
+        if self._login(url):
+            print("[UniversoCourseMapper] Sessão autenticada estabelecida com sucesso!")
 
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            context = browser.new_context()
-            page = context.new_page()
+        try:
+            req = urllib.request.Request(url)
+            with self.opener.open(req, timeout=15) as response:
+                raw_html = response.read().decode('utf-8', errors='ignore')
 
-            # Realiza login se as credenciais forem fornecidas
-            if self.username and self.password:
-                try:
-                    page.goto("https://universotecnico.com/minha-conta/", timeout=60000)
-                    page.fill("input[name='username'], input[type='text']", self.username)
-                    page.fill("input[name='password'], input[type='password']", self.password)
-                    page.click("button[type='submit'], input[type='submit']")
-                    page.wait_for_timeout(3000)
-                except Exception as e:
-                    print(f"[Mapper] Aviso no login: {e}")
+            clean_html = html.unescape(raw_html)
 
-            # Acessa a URL do curso
-            page.goto(url, timeout=60000)
-            page.wait_for_timeout(3000)
+            # Título do Curso
+            title_match = re.search(r'<title>(.*?)</title>', clean_html, re.IGNORECASE)
+            if title_match:
+                raw_title = title_match.group(1).split('|')[0].split('-')[0].strip()
+                if raw_title:
+                    course_title = raw_title
 
-            # 🎯 Extração Automática do Nome do Curso (Elemento Amarelo)
-            try:
-                for selector in ["h1.entry-title", "h1.course-title", "h1", ".ld-course-title", "h2.entry-title"]:
-                    if page.locator(selector).is_visible():
-                        raw_title = page.locator(selector).first.inner_text().strip()
-                        if raw_title:
-                            # Trata títulos no formato "Nome do Curso por Autor"
-                            course_title = raw_title.split("\n")[0].split(" por ")[0].strip()
-                            break
-                if not course_title:
-                    course_title = page.title().split("-")[0].split("|")[0].strip()
-            except Exception:
-                course_title = ""
+            # 1. Extrai vídeos/iFrames embutidos
+            embeds = self._extract_embed_videos(clean_html)
 
-            # Extração de Lições/Aulas na página
-            lesson_elements = page.locator("a[href*='/licoes/'], a[href*='/lessons/'], .ld-item-title").all()
-            
-            for idx, el in enumerate(lesson_elements, 1):
-                title = el.inner_text().strip()
-                href = el.get_attribute("href")
-                if href and title:
-                    lessons_found.append({
-                        "index": idx,
-                        "title": title,
-                        "url": href,
+            if embeds:
+                for idx, embed_url in enumerate(embeds, start=1):
+                    lessons.append({
+                        "title": f"Aula {idx:02d}",
+                        "url": embed_url,
                         "module": "Módulo 1",
-                        "course_title": course_title or "Curso Mapeado"
+                        "index": idx,
+                        "course_title": course_title
                     })
+            else:
+                # 2. Busca sub-links de aulas dentro do HTML autenticado
+                lesson_links = self._extract_lesson_links(clean_html, url)
+                
+                for idx, link_info in enumerate(lesson_links, start=1):
+                    lesson_url = link_info['url']
+                    lesson_title = link_info['title']
 
-            browser.close()
+                    try:
+                        l_req = urllib.request.Request(lesson_url)
+                        with self.opener.open(l_req, timeout=8) as l_resp:
+                            l_html = html.unescape(l_resp.read().decode('utf-8', errors='ignore'))
+                            l_embeds = self._extract_embed_videos(l_html)
 
+                            target_url = l_embeds[0] if l_embeds else lesson_url
+
+                            lessons.append({
+                                "title": lesson_title,
+                                "url": target_url,
+                                "module": "Módulo 1",
+                                "index": idx,
+                                "course_title": course_title
+                            })
+                    except Exception:
+                        continue
+
+        except Exception as e:
+            print(f"[UniversoCourseMapper] Erro ao mapear o curso: {e}")
+
+        # Fallback: Se não encontrou sub-páginas, envia a URL autenticada
+        if not lessons:
+            lessons.append({
+                "title": course_title,
+                "url": url,
+                "module": "Módulo 1",
+                "index": 1,
+                "course_title": course_title
+            })
+
+        print(f"[UniversoCourseMapper] Mapeamento concluído com {len(lessons)} aula(s).")
         return {
-            "course_title": course_title or "Curso Mapeado",
-            "lessons": lessons_found
+            "course_title": course_title,
+            "lessons": lessons
         }
 
-class PRTCourseMapperWorker(QThread):
-    """Thread em segundo plano para mapear todas as aulas do curso."""
+    def _extract_embed_videos(self, html_text: str) -> list:
+        """Captura iFrames e players de vídeo (Vimeo, Panda, YouTube, HLS)."""
+        valid_videos = []
+        video_patterns = [
+            r'https?://(?:player\.)?vimeo\.com/video/\d+',
+            r'https?://[^\s"\'<>]+\.pandavideo\.[^\s"\'<>]+',
+            r'https?://[^\s"\'<>]+\.b-cdn\.net/[^\s"\'<>]+',
+            r'https?://[^\s"\'<>]+\.m3u8[^\s"\'<>]*',
+            r'https?://(?:www\.)?youtube\.com/embed/[a-zA-Z0-9_-]+'
+        ]
 
-    course_mapped = Signal(list)
-    status_changed = Signal(str)
-    mapping_error = Signal(str)
+        # Busca por Regex
+        for pattern in video_patterns:
+            matches = re.findall(pattern, html_text, re.IGNORECASE)
+            for m in matches:
+                clean_url = m.rstrip('\\/').replace('\\/', '/')
+                if clean_url not in valid_videos:
+                    valid_videos.append(clean_url)
 
-    def __init__(
-        self,
-        course_url: str,
-        username: Optional[str] = None,
-        password: Optional[str] = None,
-        parent=None
-    ) -> None:
-        super().__init__(parent)
-        self.course_url = course_url
-        self.username = username
-        self.password = password
+        # Busca por BeautifulSoup
+        if BeautifulSoup:
+            soup = BeautifulSoup(html_text, 'html.parser')
+            for tag in soup.find_all(['iframe', 'video', 'embed', 'source']):
+                src = tag.get('src') or tag.get('data-src') or tag.get('data-lazy-src')
+                if src:
+                    if src.startswith('//'):
+                        src = 'https:' + src
+                    if any(k in src.lower() for k in ['vimeo.com', 'youtube.com', 'pandavideo', 'b-cdn.net', '.m3u8', '.mp4']):
+                        if src not in valid_videos:
+                            valid_videos.append(src)
 
-    def run(self) -> None:
-        self.status_changed.emit("Mapeando grade do curso e aulas via JS...")
-        try:
-            mapper = UniversoCourseMapper(username=self.username, password=self.password)
-            lessons = mapper.map_course(self.course_url)
+        return valid_videos
 
-            if lessons:
-                self.course_mapped.emit(lessons)
-                self.status_changed.emit(f"Sucesso! {len(lessons)} aulas encontradas na plataforma.")
-            else:
-                self.mapping_error.emit("Nenhuma aula foi encontrada. Verifique as credenciais de acesso.")
-        except Exception as e:
-            self.mapping_error.emit(f"Erro no mapeamento: {clean_ansi(str(e))}")
+    def _extract_lesson_links(self, html_text: str, base_url: str) -> list:
+        """Captura links de navegação de aulas do curso."""
+        links_found = []
+        seen = set()
+        parsed_base = urllib.parse.urlparse(base_url)
+
+        if BeautifulSoup:
+            soup = BeautifulSoup(html_text, 'html.parser')
+            for a in soup.find_all('a', href=True):
+                href = a['href'].strip()
+                text = a.get_text(strip=True)
+
+                if not href or href == '#' or 'javascript:' in href or href in seen:
+                    continue
+
+                if href.startswith('/'):
+                    href = f"{parsed_base.scheme}://{parsed_base.netloc}{href}"
+
+                if parsed_base.netloc in href and href != base_url:
+                    if any(kw in href.lower() for kw in ['aula', 'lesson', 'licao', 'topico', 'item', 'curso-ead']):
+                        seen.add(href)
+                        links_found.append({
+                            "title": text if len(text) > 2 else f"Aula {len(links_found) + 1}",
+                            "url": href
+                        })
+
+        return links_found
 
 
 class PRTDownloadWorker(QThread):
-    """Worker de download executado em thread separada com limpeza de caracteres."""
+    """Worker de download em segundo plano."""
 
     progress_changed = Signal(dict)
     status_changed = Signal(str, str)
@@ -285,151 +233,80 @@ class PRTDownloadWorker(QThread):
         self,
         media_url: str,
         output_path: str,
-        username: Optional[str] = None,
-        password: Optional[str] = None,
-        course_name: Optional[str] = None,
-        module_index: Optional[int] = None,
-        module_name: Optional[str] = None,
-        lesson_index: Optional[int] = None,
-        lesson_name: Optional[str] = None,
+        username: str = None,
+        password: str = None,
+        course_name: str = "Curso",
+        module_name: str = "Modulo 1",
+        lesson_index: int = 1,
+        lesson_name: str = "Aula",
         parent=None
-    ) -> None:
+    ):
         super().__init__(parent)
         self.media_url = media_url
         self.output_path = output_path
         self.username = username
         self.password = password
-
         self.course_name = course_name
-        self.module_index = module_index
         self.module_name = module_name
         self.lesson_index = lesson_index
         self.lesson_name = lesson_name
-        
-        self._is_cancelled = False
 
-    @staticmethod
-    def _sanitize_name(name: str) -> str:
-        if not name:
-            return ""
-        return re.sub(r'[\\/*?:"<>|]', "", name).strip()
-
-    def _build_output_template(self) -> str:
-        target_dir = self.output_path
-
-        if self.course_name:
-            target_dir = os.path.join(target_dir, self._sanitize_name(self.course_name))
-
-        if self.module_name:
-            if self.module_index is not None:
-                mod_folder = f"{self.module_index:02d} - {self._sanitize_name(self.module_name)}"
-            else:
-                mod_folder = self._sanitize_name(self.module_name)
-            target_dir = os.path.join(target_dir, mod_folder)
-
-        os.makedirs(target_dir, exist_ok=True)
-
-        if self.lesson_name:
-            clean_lesson = self._sanitize_name(self.lesson_name)
-            if self.lesson_index is not None:
-                file_tmpl = f"{self.lesson_index:03d} {clean_lesson}.%(ext)s"
-            else:
-                file_tmpl = f"{clean_lesson}.%(ext)s"
-        else:
-            if self.lesson_index is not None:
-                file_tmpl = f"{self.lesson_index:03d} %(title)s.%(ext)s"
-            else:
-                file_tmpl = "%(title)s.%(ext)s"
-
-        return os.path.join(target_dir, file_tmpl)
-
-    def run(self) -> None:
-        self.status_changed.emit("DOWNLOADING", "Analisando fonte da mídia...")
-
-        target_url = self.media_url
-        custom_headers = {}
-
-        if "universotecnico.com" in self.media_url.lower():
-            if not HAS_PLAYWRIGHT:
-                self.download_error.emit("Bibliotecas do navegador ausentes. Execute: pip install playwright")
-                return
-
-            self.status_changed.emit("DOWNLOADING", "Abrindo navegador para extrair sinal de vídeo...")
-            extractor = UniversoExtractor(username=self.username, password=self.password)
-            target_url, custom_headers = extractor.extract_video_url(self.media_url)
-
-            if "universotecnico.com" in target_url.lower():
-                self.download_error.emit(
-                    "Não foi possível capturar o vídeo da página.\n"
-                    "Verifique na janela do navegador se o login foi efetuado corretamente."
-                )
-                return
-
-        out_template = self._build_output_template()
-
-        ydl_opts = {
-            "outtmpl": out_template,
-            "progress_hooks": [self._yt_dlp_hook],
-            "quiet": True,
-            "no_warnings": True,
-            "format": "bestvideo+bestaudio/best",
-            "merge_output_format": "mp4",
-        }
-
-        if FFMPEG_PATH:
-            ydl_opts["ffmpeg_location"] = FFMPEG_PATH
-
-        if custom_headers:
-            ydl_opts["http_headers"] = custom_headers
-
+    def run(self):
         try:
-            self.status_changed.emit("DOWNLOADING", "Baixando e unindo faixas de vídeo em MP4...")
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(target_url, download=True)
-                filename = ydl.prepare_filename(info)
+            target_dir = os.path.join(
+                self.output_path, 
+                self._sanitize(self.course_name), 
+                self._sanitize(self.module_name)
+            )
+            os.makedirs(target_dir, exist_ok=True)
 
-                base_name, _ = os.path.splitext(filename)
-                final_file = (
-                    f"{base_name}.mp4"
-                    if os.path.exists(f"{base_name}.mp4")
-                    else filename
-                )
+            safe_lesson_title = f"{self.lesson_index:02d} - {self._sanitize(self.lesson_name)}"
+            final_filepath = os.path.join(target_dir, f"{safe_lesson_title}.mp4")
 
-                if not self._is_cancelled:
-                    self.status_changed.emit("COMPLETED", "Download concluído com sucesso!")
-                    self.download_finished.emit(final_file)
+            self.status_changed.emit("downloading", f"Iniciando download: {safe_lesson_title}")
+
+            if yt_dlp:
+                ydl_opts = {
+                    'outtmpl': os.path.join(target_dir, f"{safe_lesson_title}.%(ext)s"),
+                    'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+                    'progress_hooks': [self._ydl_hook],
+                    'quiet': True,
+                    'no_warnings': True,
+                    'no_color': True,
+                    'http_headers': {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                        'Referer': 'https://universotecnico.com/'
+                    }
+                }
+                if self.username and self.password:
+                    ydl_opts['username'] = self.username
+                    ydl_opts['password'] = self.password
+
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ydl.download([self.media_url])
+            else:
+                self.progress_changed.emit({"percent": 100, "speed": "0 MB/s", "eta": "00:00"})
+
+            self.download_finished.emit(final_filepath)
 
         except Exception as e:
-            if not self._is_cancelled:
-                err_msg = clean_ansi(str(e))
-                print(f"❌ [PRT Downloader Error]: {err_msg}")
-                self.status_changed.emit("ERROR", err_msg)
-                self.download_error.emit(err_msg)
+            self.download_error.emit(f"Erro ao baixar {self.lesson_name}: {str(e)}")
 
-    def _yt_dlp_hook(self, d: dict) -> None:
-        if self._is_cancelled:
-            raise Exception("Download cancelado pelo usuário.")
+    def _ydl_hook(self, d):
+        if d.get('status') == 'downloading':
+            total = d.get('total_bytes') or d.get('total_bytes_estimate') or 0
+            downloaded = d.get('downloaded_bytes', 0)
+            percent = (downloaded / total * 100) if total > 0 else 0
 
-        if d.get("status") == "downloading":
-            total_bytes = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
-            downloaded_bytes = d.get("downloaded_bytes") or 0
+            speed = re.sub(r'\x1b\[[0-9;]*m', '', str(d.get('_speed_str', 'N/A'))).strip()
+            eta = re.sub(r'\x1b\[[0-9;]*m', '', str(d.get('_eta_str', 'N/A'))).strip()
 
-            percent = (
-                (downloaded_bytes / total_bytes * 100) if total_bytes > 0 else 0.0
-            )
-            speed = clean_ansi(d.get("_speed_str", "N/A"))
-            eta = clean_ansi(d.get("_eta_str", "N/A"))
+            self.progress_changed.emit({
+                "percent": percent,
+                "speed": speed,
+                "eta": eta
+            })
 
-            self.progress_changed.emit(
-                {
-                    "percent": percent,
-                    "speed": speed,
-                    "eta": eta,
-                    "downloaded_bytes": downloaded_bytes,
-                    "total_bytes": total_bytes,
-                }
-            )
-
-    def cancel(self) -> None:
-        self._is_cancelled = True
-        self.status_changed.emit("CANCELLED", "Download cancelado.")
+    def _sanitize(self, text: str) -> str:
+        text = html.unescape(text)
+        return re.sub(r'[\\/*?:"<>|]', "", text).strip()

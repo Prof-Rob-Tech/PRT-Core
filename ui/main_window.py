@@ -505,23 +505,24 @@ class PRTMainWindow(QMainWindow):
             UpdatesPage, "Atualizações"
         )
 
+        # Mapeamento com (chave_rota, chave_plataforma, nome_de_exibicao)
         connectors_map = [
-            ("conn_youtube", "youtube"),
-            ("conn_tiktok", "tiktok"),
-            ("conn_kiwify", "kiwify"),
-            ("conn_hotmart", "hotmart"),
-            ("conn_vimeo", "vimeo"),
-            ("conn_gdrive", "gdrive"),
-            ("conn_mega", "mega"),
-            ("conn_universo", "universo"),
+            ("conn_youtube", "youtube", "YouTube"),
+            ("conn_tiktok", "tiktok", "TikTok"),
+            ("conn_kiwify", "kiwify", "Kiwify"),
+            ("conn_hotmart", "hotmart", "Hotmart"),
+            ("conn_vimeo", "vimeo", "Vimeo"),
+            ("conn_gdrive", "gdrive", "Google Drive"),
+            ("conn_mega", "mega", "Mega"),
+            ("conn_universo", "universo", "Universo Técnico"),
         ]
 
-        for route_key, conn_key in connectors_map:
+        for route_key, conn_key, display_name in connectors_map:
             self.pages[route_key] = self._instantiate_page(
                 ConnectorPage,
-                title_fallback=conn_key.capitalize(),
+                title_fallback=display_name,
                 platform_key=conn_key,
-                connector_name=conn_key,
+                connector_name=display_name,
             )
 
         for page_widget in self.pages.values():

@@ -3,7 +3,8 @@
 PRT Labs - UI / Pages
 Class: ConnectorPage
 Description: Template genérico e adaptável para conectores com suporte a
-             Login/Senha, criação de estrutura de pastas e downloads via PRTDownloadWorker.
+             seletor de qualidade, Login/Senha, criação de estrutura de 
+             pastas e downloads via PRTDownloadWorker.
 ===========================================================
 """
 
@@ -74,7 +75,7 @@ class ConnectorPage(QWidget):
     def __init__(self, platform_key: str = "conector", connector_name: str = "Conector", parent=None) -> None:
         super().__init__(parent)
         self.platform_key = platform_key.lower()
-        self.connector_name = connector_name.capitalize()
+        self.connector_name = connector_name.title() if connector_name else "Conector"
         self.active_worker = None
         self.map_thread = None
         self.lessons_queue = []
@@ -148,13 +149,20 @@ class ConnectorPage(QWidget):
         lbl_cap_title.setStyleSheet("font-weight: bold; font-size: 14px;")
         c_layout.addWidget(lbl_cap_title)
 
-        # Linha URL + Formato + Botões
+        # Linha URL + Formato/Qualidade + Botões
         input_layout = QHBoxLayout()
         self.txt_url = QLineEdit()
         self.txt_url.setPlaceholderText(f"Cole o link da aula ou curso do {self.connector_name} aqui (ex: https://...)")
 
+        # Seletor com Opções de Qualidade de Vídeo e Áudio
         self.combo_format = QComboBox()
-        self.combo_format.addItems(["📹 Vídeo (MP4)", "🎵 Apenas Áudio (MP3)"])
+        self.combo_format.addItems([
+            "📹 Vídeo - Max Qualidade (MP4)",
+            "📹 Vídeo - 1080p Full HD (MP4)",
+            "📹 Vídeo - 720p HD (MP4)",
+            "📹 Vídeo - 480p SD (MP4)",
+            "🎵 Apenas Áudio (MP3)"
+        ])
 
         self.btn_download = QPushButton("⬇️ Baixar Mídia")
         self.btn_download.setCursor(Qt.PointingHandCursor)
@@ -271,7 +279,7 @@ class ConnectorPage(QWidget):
 
         layout.addWidget(card_capture)
 
-        # 3. Tabela de Mídias Concluídas (Expansível para preencher a tela)
+        # 3. Tabela de Mídias Concluídas
         card_table = QFrame()
         card_table.setObjectName("cardFrame")
         card_table.setStyleSheet("""
@@ -306,26 +314,37 @@ class ConnectorPage(QWidget):
         self.table = QTableWidget(0, 3)
         self.table.setHorizontalHeaderLabels(["Título / Nome do Arquivo", "Caminho Salvo", "Status"])
         
-        # --- LARGURAS DAS COLUNAS AJUSTADAS ---
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.Stretch)  # Título expande
-        header.setSectionResizeMode(1, QHeaderView.Stretch)  # Caminho Salvo expande
-        header.setSectionResizeMode(2, QHeaderView.Fixed)    # Status com tamanho fixo
-        self.table.setColumnWidth(2, 120)                    # Largura estreita para o Status
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.Fixed)
+        self.table.setColumnWidth(2, 120)
 
         self.table.setMinimumHeight(220)
 
         t_layout.addWidget(self.table)
         layout.addWidget(card_table, 1)
 
+    def _get_selected_quality_params(self):
+        """Mapeia a seleção do ComboBox para os parâmetros de tipo e qualidade."""
+        selected = self.combo_format.currentText()
+        if "Áudio" in selected:
+            return "audio", "best"
+        elif "1080p" in selected:
+            return "video", "1080p"
+        elif "720p" in selected:
+            return "video", "720p"
+        elif "480p" in selected:
+            return "video", "480p"
+        else:
+            return "video", "best"
+
     def _select_folder(self) -> None:
-        """Abre a caixa de diálogo para escolher a pasta de saída."""
         chosen = QFileDialog.getExistingDirectory(self, "Selecione a Pasta de Destino", self.txt_folder.text())
         if chosen:
             self.txt_folder.setText(chosen)
 
     def _start_download(self) -> None:
-        """Inicia o download enviando a URL, credenciais e parâmetros de pasta."""
         url = self.txt_url.text().strip()
         if not url:
             self.lbl_status.setText("⚠️ Digite ou cole uma URL válida antes de baixar.")
@@ -335,6 +354,7 @@ class ConnectorPage(QWidget):
             self.lbl_status.setText("❌ Erro: O módulo 'download_worker' não foi encontrado.")
             return
 
+        media_type, quality = self._get_selected_quality_params()
         user = self.txt_user.text().strip() or None
         pwd = self.txt_pass.text().strip() or None
 
@@ -348,11 +368,13 @@ class ConnectorPage(QWidget):
         self.btn_download.setEnabled(False)
         self.btn_map_course.setEnabled(False)
         self.progress_bar.setValue(0)
-        self.lbl_status.setText("🚀 Autenticando e iniciando o worker de download...")
+        self.lbl_status.setText(f"🚀 Iniciando download ({quality})...")
 
         self.active_worker = PRTDownloadWorker(
             media_url=url,
             output_path=output_dir,
+            media_type=media_type,
+            quality=quality,
             username=user,
             password=pwd,
             course_name=course,
@@ -371,7 +393,6 @@ class ConnectorPage(QWidget):
         self.active_worker.start()
 
     def _start_course_mapping(self) -> None:
-        """Dispara a thread de mapeamento de todas as aulas do curso via Playwright."""
         url = self.txt_url.text().strip()
         if not url:
             self.lbl_status.setText("⚠️ Cole o link principal do curso para mapear.")
@@ -392,7 +413,6 @@ class ConnectorPage(QWidget):
 
     @Slot(list)
     def _on_mapping_finished(self, lessons: list) -> None:
-        """Recebe a lista de aulas mapeadas e inicia o download da primeira."""
         if not lessons:
             self.btn_download.setEnabled(True)
             self.btn_map_course.setEnabled(True)
@@ -411,7 +431,6 @@ class ConnectorPage(QWidget):
         self.lbl_status.setText(f"❌ Erro ao mapear curso: {err_msg}")
 
     def _download_next_in_queue(self) -> None:
-        """Baixa em lote uma aula por vez da fila mapeada."""
         if self.current_lesson_index >= len(self.lessons_queue):
             self.btn_download.setEnabled(True)
             self.btn_map_course.setEnabled(True)
@@ -419,6 +438,7 @@ class ConnectorPage(QWidget):
             self.lbl_status.setText(f"🎉 Todos os downloads do curso foram concluídos ({len(self.lessons_queue)} aulas)!")
             return
 
+        media_type, quality = self._get_selected_quality_params()
         lesson = self.lessons_queue[self.current_lesson_index]
         self.lbl_status.setText(f"⏳ Baixando Aula {self.current_lesson_index + 1}/{len(self.lessons_queue)}: {lesson.get('title', '')}")
 
@@ -430,6 +450,8 @@ class ConnectorPage(QWidget):
         self.active_worker = PRTDownloadWorker(
             media_url=lesson.get("url"),
             output_path=output_dir,
+            media_type=media_type,
+            quality=quality,
             username=user,
             password=pwd,
             course_name=course,
@@ -448,7 +470,6 @@ class ConnectorPage(QWidget):
 
     @Slot(str)
     def _add_completed_to_table(self, file_path: str) -> None:
-        """Adiciona com segurança o item concluído na tabela com normalização de caminho e auto-scroll."""
         if not file_path:
             return
 

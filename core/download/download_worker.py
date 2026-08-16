@@ -184,32 +184,40 @@ class UniversoCourseMapper:
         course_title = ""
 
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+            browser = p.chromium.launch(headless=False)
             context = browser.new_context()
             page = context.new_page()
 
             # Realiza login se as credenciais forem fornecidas
             if self.username and self.password:
                 try:
-                    page.goto("https://universotecnico.com/minha-conta/", timeout=60000)
-                    page.fill("input[name='username'], input[type='text']", self.username)
-                    page.fill("input[name='password'], input[type='password']", self.password)
-                    page.click("button[type='submit'], input[type='submit']")
-                    page.wait_for_timeout(3000)
+                    print("🔑 [Mapper] Acessando página de login principal do WordPress...")
+                    page.goto("https://universotecnico.com/wp-login.php", timeout=60000)
+                    
+                    page.fill("input[name='log'], #user_login, input[type='email'], input[type='text']", self.username)
+                    page.fill("input[name='pwd'], #user_pass, input[type='password']", self.password)
+                    page.click("#wp-submit, input[type='submit'], button[type='submit']")
+                    
+                    print("✅ [Mapper] Formulário enviado. Aguardando o site processar o login...")
+                    # 🔥 CORREÇÃO 1: Espera a página carregar o painel do usuário ou terminar a rede
+                    page.wait_for_load_state("domcontentloaded", timeout=20000)
+                    # Dá uma margem extra de 4 segundos para garantir os cookies
+                    page.wait_for_timeout(4000) 
                 except Exception as e:
                     print(f"[Mapper] Aviso no login: {e}")
 
             # Acessa a URL do curso
+            print(f"🌐 [Mapper] Acessando página do curso: {url}")
             page.goto(url, timeout=60000)
-            page.wait_for_timeout(3000)
+            page.wait_for_load_state("domcontentloaded", timeout=15000)
+            page.wait_for_timeout(3000) # Tempo para scripts da página carregarem
 
-            # 🎯 Extração Automática do Nome do Curso (Elemento Amarelo)
+            # 🎯 Extração Automática do Nome do Curso
             try:
                 for selector in ["h1.entry-title", "h1.course-title", "h1", ".ld-course-title", "h2.entry-title"]:
                     if page.locator(selector).is_visible():
                         raw_title = page.locator(selector).first.inner_text().strip()
                         if raw_title:
-                            # Trata títulos no formato "Nome do Curso por Autor"
                             course_title = raw_title.split("\n")[0].split(" por ")[0].strip()
                             break
                 if not course_title:
@@ -218,14 +226,30 @@ class UniversoCourseMapper:
                 course_title = ""
 
             # Extração de Lições/Aulas na página
-            lesson_elements = page.locator("a[href*='/licoes/'], a[href*='/lessons/'], .ld-item-title").all()
+            print("🔍 [Mapper] Buscando links de aulas...")
+            # 🔥 CORREÇÃO 2: Ampliando muito mais os seletores para não perder nenhuma aula
+            selectors = [
+                "a[href*='/licoes/']", 
+                "a[href*='/lessons/']", 
+                "a[href*='/aulas/']",
+                "a[href*='/aula/']",
+                ".ld-item-title",
+                ".ld-item-list-item a",
+                "a.lesson-title"
+            ]
             
-            for idx, el in enumerate(lesson_elements, 1):
+            lesson_elements = page.locator(", ".join(selectors)).all()
+            
+            seen_urls = set()
+            for el in lesson_elements:
                 title = el.inner_text().strip()
                 href = el.get_attribute("href")
-                if href and title:
+                
+                # Evita links duplicados e pega apenas os válidos
+                if href and title and href not in seen_urls:
+                    seen_urls.add(href)
                     lessons_found.append({
-                        "index": idx,
+                        "index": len(lessons_found) + 1,
                         "title": title,
                         "url": href,
                         "module": "Módulo 1",
@@ -264,9 +288,9 @@ class PRTCourseMapperWorker(QThread):
             mapper = UniversoCourseMapper(username=self.username, password=self.password)
             lessons = mapper.map_course(self.course_url)
 
-            if lessons:
-                self.course_mapped.emit(lessons)
-                self.status_changed.emit(f"Sucesso! {len(lessons)} aulas encontradas na plataforma.")
+            if lessons and lessons.get("lessons"):
+                self.course_mapped.emit(lessons.get("lessons"))
+                self.status_changed.emit(f"Sucesso! {len(lessons.get('lessons'))} aulas encontradas na plataforma.")
             else:
                 self.mapping_error.emit("Nenhuma aula foi encontrada. Verifique as credenciais de acesso.")
         except Exception as e:

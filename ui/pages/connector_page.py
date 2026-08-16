@@ -527,3 +527,80 @@ class ConnectorPage(QWidget):
         self.active_worker.download_error.connect(self._on_batch_error)
 
         self.active_worker.start()
+
+    def _on_progress(self, data: dict):
+        """Atualiza a barra de progresso e os textos na interface."""
+        percent = data.get("percent", 0)
+        
+        # Atualiza a barrinha visual
+        if hasattr(self, 'progress_bar'):
+            self.progress_bar.setValue(int(percent))
+            
+        # Atualiza o texto de "Aguardando link..." para os dados reais
+        if hasattr(self, 'lbl_status'):
+            speed = data.get("speed", "N/A")
+            eta = data.get("eta", "N/A")
+            self.lbl_status.setText(f"Baixando: {percent:.1f}% | Velocidade: {speed} | Tempo Restante: {eta}")
+
+    def _on_status(self, _status_code: str, message: str):
+        """Atualiza a mensagem de status (texto) na interface."""
+        if hasattr(self, 'lbl_status'):
+            self.lbl_status.setText(f"{message}")
+
+    # ==========================================================
+    # NOVAS FUNÇÕES ADICIONADAS PARA CORRIGIR OS ERROS
+    # ==========================================================
+
+    def _add_to_table(self, title: str, filepath: str, status: str):
+        """Adiciona um registro na tabela de mídias concluídas."""
+        if hasattr(self, 'table'):
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+            self.table.setItem(row, 0, QTableWidgetItem(title))
+            self.table.setItem(row, 1, QTableWidgetItem(filepath))
+            self.table.setItem(row, 2, QTableWidgetItem(status))
+            self.table.scrollToBottom()
+
+    @Slot(str)
+    def _on_finished(self, filepath: str) -> None:
+        """Lida com a conclusão de um download único (avulso)."""
+        self.lbl_status.setText("✅ Download concluído com sucesso!")
+        self.btn_download.setEnabled(True)
+        self.btn_map_course.setEnabled(True)
+        self.progress_bar.setValue(100)
+        
+        filename = os.path.basename(filepath)
+        self._add_to_table(filename, filepath, "Concluído")
+
+    @Slot(str)
+    def _on_error(self, err_msg: str) -> None:
+        """Lida com erro em um download único (avulso)."""
+        self.lbl_status.setText(f"❌ Erro no download: {err_msg}")
+        self.btn_download.setEnabled(True)
+        self.btn_map_course.setEnabled(True)
+
+    @Slot(str)
+    def _on_batch_finished(self, filepath: str) -> None:
+        """Lida com a conclusão de uma aula e puxa a próxima da fila."""
+        lesson = self.lessons_queue[self.current_lesson_index]
+        title = lesson.get("title", os.path.basename(filepath))
+        self._add_to_table(title, filepath, "Concluído")
+        
+        print(f"✅ [Download] Arquivo salvo com sucesso em: {filepath}")
+        
+        # Avança para a próxima aula
+        self.current_lesson_index += 1
+        self._download_next_in_queue()
+
+    @Slot(str)
+    def _on_batch_error(self, err_msg: str) -> None:
+        """Lida com erro em uma aula da fila e pula para a próxima."""
+        lesson = self.lessons_queue[self.current_lesson_index]
+        title = lesson.get("title", f"Aula {self.current_lesson_index + 1}")
+        self._add_to_table(title, "N/A", "Falha")
+        
+        print(f"❌ [Download] Erro na aula {self.current_lesson_index + 1}: {err_msg}")
+        
+        # Avança para a próxima aula mesmo se der erro
+        self.current_lesson_index += 1
+        self._download_next_in_queue()

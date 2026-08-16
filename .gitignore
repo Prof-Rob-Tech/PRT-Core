@@ -23,3 +23,5 @@ PRT_Nexus/
 
 # Logs e arquivos temporários
 *.log
+*.html
+debug_*.html

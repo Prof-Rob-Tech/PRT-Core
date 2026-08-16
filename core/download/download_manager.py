@@ -29,8 +29,18 @@ class PRTDownloadManager(QObject):
         self.active_workers: dict[str, PRTDownloadWorker] = {}
         self.tasks: dict[str, dict] = {}
 
-    def add_download(self, url: str, title: str = "Mídia Capturada") -> str:
-        """Adiciona e inicia um novo download na fila."""
+    def add_download(
+        self, 
+        url: str, 
+        title: str = "Mídia Capturada",
+        cookie_string: str = "",
+        cookies_list: list = None,
+        course_name: str = "Curso",
+        module_name: str = "Módulo 1",
+        module_index: int = 1,
+        lesson_index: int = 1
+    ) -> str:
+        """Adiciona e inicia um novo download na fila com suporte a sessão e metadados."""
         import uuid
 
         task_id = str(uuid.uuid4())[:8]
@@ -39,6 +49,8 @@ class PRTDownloadManager(QObject):
             "id": task_id,
             "title": title,
             "url": url,
+            "course_name": course_name,
+            "module_name": module_name,
             "percent": 0.0,
             "speed": "0 KB/s",
             "eta": "--:--",
@@ -48,8 +60,21 @@ class PRTDownloadManager(QObject):
         self.tasks[task_id] = task_info
         self.task_added.emit(task_info)
 
-        # Inicia o worker
-        worker = PRTDownloadWorker(url, self.download_folder, self)
+        # 🎯 Instancia o worker passando TODOS os dados de sessão e hierarquia
+        worker = PRTDownloadWorker(
+            media_url=url,
+            output_path=self.download_folder,
+            media_type="video",
+            quality="best",
+            cookie_string=cookie_string,
+            cookies_list=cookies_list or [],
+            course_name=course_name,
+            module_name=module_name,
+            module_index=module_index,
+            lesson_index=lesson_index,
+            lesson_name=title,
+            parent=self
+        )
 
         worker.progress_changed.connect(
             lambda prog: self._on_progress(task_id, prog)
@@ -61,6 +86,9 @@ class PRTDownloadManager(QObject):
         )
         worker.download_finished.connect(
             lambda filepath: self._on_finished(task_id, filepath)
+        )
+        worker.download_error.connect(
+            lambda err_msg: self._on_error(task_id, err_msg)
         )
 
         self.active_workers[task_id] = worker
@@ -87,6 +115,15 @@ class PRTDownloadManager(QObject):
             self.tasks[task_id]["status"] = "COMPLETED"
             self.tasks[task_id]["filepath"] = filepath
             self.task_finished.emit(task_id, filepath)
+
+        if task_id in self.active_workers:
+            del self.active_workers[task_id]
+
+    def _on_error(self, task_id: str, error_message: str) -> None:
+        if task_id in self.tasks:
+            self.tasks[task_id]["status"] = "ERROR"
+            self.tasks[task_id]["error"] = error_message
+            self.task_updated.emit(task_id, self.tasks[task_id])
 
         if task_id in self.active_workers:
             del self.active_workers[task_id]

@@ -25,6 +25,11 @@ try:
 except ImportError:
     BeautifulSoup = None
 
+try:
+    from playwright.sync_api import sync_playwright
+except ImportError:
+    sync_playwright = None
+
 
 class UniversoCourseMapper:
     """Mapeador HTTP em segundo plano (100% thread-safe)."""
@@ -50,12 +55,10 @@ class UniversoCourseMapper:
         login_url = f"{parsed.scheme}://{parsed.netloc}/wp-login.php"
 
         try:
-            # 1. Requisição GET inicial para capturar o 'wordpress_test_cookie'
             init_req = urllib.request.Request(login_url)
             with self.opener.open(init_req, timeout=10) as resp:
                 resp.read()
 
-            # 2. Envio das credenciais de Login via POST
             login_data = urllib.parse.urlencode({
                 'log': self.username,
                 'pwd': self.password,
@@ -84,11 +87,10 @@ class UniversoCourseMapper:
         lessons = []
         course_title = "Curso Extraído"
 
-        # Autentica primeiro na plataforma
-        if self._login(url):
-            print("[UniversoCourseMapper] Sessão autenticada estabelecida com sucesso!")
+        if not sync_playwright:
+            print("[Mapper] Erro: Playwright não está instalado. Instale com 'pip install playwright'.")
+            return {"course_title": course_title, "lessons": lessons}
 
-<<<<<<< HEAD
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=False)
             context = browser.new_context()
@@ -97,17 +99,17 @@ class UniversoCourseMapper:
             # Realiza login se as credenciais forem fornecidas
             if self.username and self.password:
                 try:
-                    print("🔑 [Mapper] Acessando página de login principal do WordPress...")
-                    page.goto("https://universotecnico.com/wp-login.php", timeout=60000)
+                    print("🔑 [Mapper] Acessando página de login principal...")
+                    parsed = urllib.parse.urlparse(url)
+                    login_url = f"{parsed.scheme}://{parsed.netloc}/wp-login.php"
+                    page.goto(login_url, timeout=60000)
                     
                     page.fill("input[name='log'], #user_login, input[type='email'], input[type='text']", self.username)
                     page.fill("input[name='pwd'], #user_pass, input[type='password']", self.password)
                     page.click("#wp-submit, input[type='submit'], button[type='submit']")
                     
                     print("✅ [Mapper] Formulário enviado. Aguardando o site processar o login...")
-                    # 🔥 CORREÇÃO 1: Espera a página carregar o painel do usuário ou terminar a rede
                     page.wait_for_load_state("domcontentloaded", timeout=20000)
-                    # Dá uma margem extra de 4 segundos para garantir os cookies
                     page.wait_for_timeout(4000) 
                 except Exception as e:
                     print(f"[Mapper] Aviso no login: {e}")
@@ -116,7 +118,7 @@ class UniversoCourseMapper:
             print(f"🌐 [Mapper] Acessando página do curso: {url}")
             page.goto(url, timeout=60000)
             page.wait_for_load_state("domcontentloaded", timeout=15000)
-            page.wait_for_timeout(3000) # Tempo para scripts da página carregarem
+            page.wait_for_timeout(3000) 
 
             # 🎯 Extração Automática do Nome do Curso
             try:
@@ -126,181 +128,69 @@ class UniversoCourseMapper:
                         if raw_title:
                             course_title = raw_title.split("\n")[0].split(" por ")[0].strip()
                             break
-                if not course_title:
+                if course_title == "Curso Extraído":
                     course_title = page.title().split("-")[0].split("|")[0].strip()
             except Exception:
-                course_title = ""
+                course_title = "Curso Extraído"
 
-            # Extração de Lições/Aulas na página
-            print("🔍 [Mapper] Buscando links de aulas...")
-            # 🔥 CORREÇÃO 2: Ampliando muito mais os seletores para não perder nenhuma aula
+            print(f"📚 [Mapper] Título do curso detectado: {course_title}")
+            print("🔍 [Mapper] Buscando módulos e aulas...")
+
+            # 🎯 Extração Inteligente (Lendo a página de cima pra baixo)
+            # Ele vai procurar Títulos (Módulos) e Links (Aulas)
             selectors = [
-                "a[href*='/licoes/']", 
-                "a[href*='/lessons/']", 
-                "a[href*='/aulas/']",
-                "a[href*='/aula/']",
-                ".ld-item-title",
-                ".ld-item-list-item a",
-                "a.lesson-title"
+                "h2", "h3", ".ld-section-heading", ".module-title", ".section-title", # Possíveis títulos de módulo
+                "a[href*='/licoes/']", "a[href*='/lessons/']", "a[href*='/aulas/']", "a[href*='/aula/']", "a.lesson-title" # Links de aulas
             ]
             
-            lesson_elements = page.locator(", ".join(selectors)).all()
+            elements = page.locator(", ".join(selectors)).all()
             
             seen_urls = set()
-            for el in lesson_elements:
-                title = el.inner_text().strip()
-                href = el.get_attribute("href")
-                
-                # Evita links duplicados e pega apenas os válidos
-                if href and title and href not in seen_urls:
-                    seen_urls.add(href)
-                    lessons_found.append({
-                        "index": len(lessons_found) + 1,
-                        "title": title,
-                        "url": href,
-=======
-        try:
-            req = urllib.request.Request(url)
-            with self.opener.open(req, timeout=15) as response:
-                raw_html = response.read().decode('utf-8', errors='ignore')
-
-            clean_html = html.unescape(raw_html)
-
-            # Título do Curso
-            title_match = re.search(r'<title>(.*?)</title>', clean_html, re.IGNORECASE)
-            if title_match:
-                raw_title = title_match.group(1).split('|')[0].split('-')[0].strip()
-                if raw_title:
-                    course_title = raw_title
-
-            # 1. Extrai vídeos/iFrames embutidos
-            embeds = self._extract_embed_videos(clean_html)
-
-            if embeds:
-                for idx, embed_url in enumerate(embeds, start=1):
-                    lessons.append({
-                        "title": f"Aula {idx:02d}",
-                        "url": embed_url,
->>>>>>> 91bea2efb6fb3d86544151292b850b58bdebe228
-                        "module": "Módulo 1",
-                        "index": idx,
-                        "course_title": course_title
-                    })
-            else:
-                # 2. Busca sub-links de aulas dentro do HTML autenticado
-                lesson_links = self._extract_lesson_links(clean_html, url)
-                
-                for idx, link_info in enumerate(lesson_links, start=1):
-                    lesson_url = link_info['url']
-                    lesson_title = link_info['title']
-
-                    try:
-                        l_req = urllib.request.Request(lesson_url)
-                        with self.opener.open(l_req, timeout=8) as l_resp:
-                            l_html = html.unescape(l_resp.read().decode('utf-8', errors='ignore'))
-                            l_embeds = self._extract_embed_videos(l_html)
-
-                            target_url = l_embeds[0] if l_embeds else lesson_url
-
-                            lessons.append({
-                                "title": lesson_title,
-                                "url": target_url,
-                                "module": "Módulo 1",
-                                "index": idx,
-                                "course_title": course_title
-                            })
-                    except Exception:
+            current_module_name = "Módulo 1" # Padrão caso não ache título antes da primeira aula
+            current_module_idx = 1
+            
+            for el in elements:
+                try:
+                    tag_name = el.evaluate("el => el.tagName").lower()
+                    classes = el.get_attribute("class") or ""
+                    
+                    # Se for um Header ou Div de título, atualizamos o módulo atual
+                    if tag_name in ['h2', 'h3'] or 'heading' in classes or 'title' in classes:
+                        text = el.inner_text().strip()
+                        # Ignora textos muito curtos ou inúteis
+                        if text and len(text) > 3 and "curso" not in text.lower() and tag_name != 'a':
+                            if text != current_module_name:
+                                current_module_name = text
+                                current_module_idx += 1
+                                print(f"📁 [Mapper] Novo módulo detectado: {current_module_name}")
                         continue
+                    
+                    # Se for um Link (A), é uma aula
+                    if tag_name == 'a':
+                        title = el.inner_text().strip()
+                        href = el.get_attribute("href")
+                        
+                        if href and title and href not in seen_urls:
+                            if url in href or urllib.parse.urlparse(url).netloc in href: # Garante que é link do site
+                                seen_urls.add(href)
+                                lessons.append({
+                                    "index": len(lessons) + 1,
+                                    "title": title,
+                                    "url": href,
+                                    "module": current_module_name,
+                                    "module_index": current_module_idx,
+                                    "course_title": course_title
+                                })
+                except Exception:
+                    continue
 
-        except Exception as e:
-            print(f"[UniversoCourseMapper] Erro ao mapear o curso: {e}")
-
-        # Fallback: Se não encontrou sub-páginas, envia a URL autenticada
-        if not lessons:
-            lessons.append({
-                "title": course_title,
-                "url": url,
-                "module": "Módulo 1",
-                "index": 1,
-                "course_title": course_title
-            })
+            browser.close()
 
         print(f"[UniversoCourseMapper] Mapeamento concluído com {len(lessons)} aula(s).")
         return {
             "course_title": course_title,
             "lessons": lessons
         }
-
-    def _extract_embed_videos(self, html_text: str) -> list:
-        """Captura iFrames e players de vídeo (Vimeo, Panda, YouTube, HLS)."""
-        valid_videos = []
-        video_patterns = [
-            r'https?://(?:player\.)?vimeo\.com/video/\d+',
-            r'https?://[^\s"\'<>]+\.pandavideo\.[^\s"\'<>]+',
-            r'https?://[^\s"\'<>]+\.b-cdn\.net/[^\s"\'<>]+',
-            r'https?://[^\s"\'<>]+\.m3u8[^\s"\'<>]*',
-            r'https?://(?:www\.)?youtube\.com/embed/[a-zA-Z0-9_-]+'
-        ]
-
-        # Busca por Regex
-        for pattern in video_patterns:
-            matches = re.findall(pattern, html_text, re.IGNORECASE)
-            for m in matches:
-                clean_url = m.rstrip('\\/').replace('\\/', '/')
-                if clean_url not in valid_videos:
-                    valid_videos.append(clean_url)
-
-        # Busca por BeautifulSoup
-        if BeautifulSoup:
-            soup = BeautifulSoup(html_text, 'html.parser')
-            for tag in soup.find_all(['iframe', 'video', 'embed', 'source']):
-                src = tag.get('src') or tag.get('data-src') or tag.get('data-lazy-src')
-                if src:
-                    if src.startswith('//'):
-                        src = 'https:' + src
-                    if any(k in src.lower() for k in ['vimeo.com', 'youtube.com', 'pandavideo', 'b-cdn.net', '.m3u8', '.mp4']):
-                        if src not in valid_videos:
-                            valid_videos.append(src)
-
-        return valid_videos
-
-<<<<<<< HEAD
-            if lessons and lessons.get("lessons"):
-                self.course_mapped.emit(lessons.get("lessons"))
-                self.status_changed.emit(f"Sucesso! {len(lessons.get('lessons'))} aulas encontradas na plataforma.")
-            else:
-                self.mapping_error.emit("Nenhuma aula foi encontrada. Verifique as credenciais de acesso.")
-        except Exception as e:
-            self.mapping_error.emit(f"Erro no mapeamento: {clean_ansi(str(e))}")
-=======
-    def _extract_lesson_links(self, html_text: str, base_url: str) -> list:
-        """Captura links de navegação de aulas do curso."""
-        links_found = []
-        seen = set()
-        parsed_base = urllib.parse.urlparse(base_url)
-
-        if BeautifulSoup:
-            soup = BeautifulSoup(html_text, 'html.parser')
-            for a in soup.find_all('a', href=True):
-                href = a['href'].strip()
-                text = a.get_text(strip=True)
-
-                if not href or href == '#' or 'javascript:' in href or href in seen:
-                    continue
-
-                if href.startswith('/'):
-                    href = f"{parsed_base.scheme}://{parsed_base.netloc}{href}"
-
-                if parsed_base.netloc in href and href != base_url:
-                    if any(kw in href.lower() for kw in ['aula', 'lesson', 'licao', 'topico', 'item', 'curso-ead']):
-                        seen.add(href)
-                        links_found.append({
-                            "title": text if len(text) > 2 else f"Aula {len(links_found) + 1}",
-                            "url": href
-                        })
-
-        return links_found
->>>>>>> 91bea2efb6fb3d86544151292b850b58bdebe228
 
 
 class PRTDownloadWorker(QThread):
@@ -315,10 +205,13 @@ class PRTDownloadWorker(QThread):
         self,
         media_url: str,
         output_path: str,
+        media_type: str = "video",
+        quality: str = "best",
         username: str = None,
         password: str = None,
         course_name: str = "Curso",
-        module_name: str = "Modulo 1",
+        module_name: str = "Módulo 1",
+        module_index: int = 1,
         lesson_index: int = 1,
         lesson_name: str = "Aula",
         parent=None
@@ -326,19 +219,25 @@ class PRTDownloadWorker(QThread):
         super().__init__(parent)
         self.media_url = media_url
         self.output_path = output_path
+        self.media_type = media_type
+        self.quality = quality
         self.username = username
         self.password = password
         self.course_name = course_name
         self.module_name = module_name
+        self.module_index = module_index
         self.lesson_index = lesson_index
         self.lesson_name = lesson_name
 
     def run(self):
         try:
+            # Constrói o nome da pasta do módulo com índice numérico (Ex: "01 - Introdução")
+            safe_mod_title = f"{self.module_index:02d} - {self._sanitize(self.module_name)}"
+            
             target_dir = os.path.join(
                 self.output_path, 
                 self._sanitize(self.course_name), 
-                self._sanitize(self.module_name)
+                safe_mod_title
             )
             os.makedirs(target_dir, exist_ok=True)
 
@@ -356,10 +255,20 @@ class PRTDownloadWorker(QThread):
                     'no_warnings': True,
                     'no_color': True,
                     'http_headers': {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                        'Referer': 'https://universotecnico.com/'
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
                     }
                 }
+                
+                # Ajusta para áudio se for selecionado
+                if self.media_type == "audio":
+                    ydl_opts['format'] = 'bestaudio/best'
+                    ydl_opts['postprocessors'] = [{
+                        'key': 'FFmpegExtractAudio',
+                        'preferredcodec': 'mp3',
+                        'preferredquality': '192',
+                    }]
+                    final_filepath = os.path.join(target_dir, f"{safe_lesson_title}.mp3")
+
                 if self.username and self.password:
                     ydl_opts['username'] = self.username
                     ydl_opts['password'] = self.password

@@ -120,19 +120,41 @@ class UniversoCourseMapper:
             elements = page.locator(", ".join(selectors)).all()
             seen_urls = set()
             current_module_name = "Módulo 1"
-            current_module_idx = 1
+            current_module_idx = 0
             
+            # Palavras/Rótulos genéricos que NÃO devem ser considerados nomes de módulo
+            IGNORE_TITLES = {
+                "AULAS", "AULA", "LESSONS", "LESSON", "CONCLUÍDO", "CONCLUIDO", 
+                "COMPLETED", "CONTEÚDO", "CONTEUDO", "TOPICS", "TÓPICOS"
+            }
+
             for el in elements:
                 try:
                     tag_name = el.evaluate("el => el.tagName").lower()
                     classes = el.get_attribute("class") or ""
                     
                     if tag_name in ['h2', 'h3'] or 'heading' in classes or 'title' in classes:
-                        text = el.inner_text().strip()
-                        if text and len(text) > 3 and "curso" not in text.lower() and tag_name != 'a':
-                            if text != current_module_name:
-                                current_module_name = text
-                                current_module_idx += 1
+                        raw_text = el.inner_text().strip()
+                        # Pega a primeira linha (caso venha com o badge "CONCLUÍDO" junto)
+                        first_line = raw_text.split("\n")[0].strip()
+                        cleaned_title = re.sub(r'(?i)\s*(concluído|concluido|completed)\s*$', '', first_line).strip()
+                        
+                        # Ignora rótulos genéricos como "AULAS"
+                        if cleaned_title.upper() in IGNORE_TITLES:
+                            continue
+
+                        if (
+                            cleaned_title 
+                            and len(cleaned_title) > 2 
+                            and "curso" not in cleaned_title.lower() 
+                            and tag_name != 'a'
+                        ):
+                            if cleaned_title != current_module_name:
+                                current_module_name = cleaned_title
+                                if current_module_idx == 0:
+                                    current_module_idx = 1
+                                else:
+                                    current_module_idx += 1
                         continue
                     
                     if tag_name == 'a':
@@ -146,8 +168,8 @@ class UniversoCourseMapper:
                                     "index": len(lessons) + 1,
                                     "title": title,
                                     "url": href,
-                                    "module": current_module_name,
-                                    "module_index": current_module_idx,
+                                    "module": current_module_name if current_module_name else "Módulo 1",
+                                    "module_index": max(1, current_module_idx),
                                     "course_title": course_title
                                 })
                 except Exception:
@@ -251,7 +273,6 @@ class PRTDownloadWorker(QThread):
                         page.wait_for_load_state("domcontentloaded")
                         page.wait_for_timeout(3000)
 
-                        # --- RESGATAR CREDENCIAIS DA INTERFACE / PROPRIEDADES ---
                         user = self.username
                         passw = self.password
 
@@ -264,9 +285,6 @@ class PRTDownloadWorker(QThread):
                                 except Exception:
                                     pass
 
-                        print(f"🔑 [Worker] Credenciais resgatadas -> Usuário: '{user}' | Senha: '{'*'*len(passw) if passw else ''}'")
-
-                        # --- DETECÇÃO E PREENCHIMENTO DO LOGIN ---
                         sem_acesso = page.locator("text='VOCÊ NÃO TEM ACESSO A ESTA AULA'")
                         btn_entrar = page.locator("a:has-text('Entrar'), button:has-text('Entrar')")
 
@@ -313,20 +331,15 @@ class PRTDownloadWorker(QThread):
                                         page.wait_for_timeout(4000)
                                 except Exception as err:
                                     print(f"⚠️ [Worker] Erro ao preencher campos de login: {err}")
-                            else:
-                                print("⚠️ [Worker] AVISO: E-mail ou senha estão vazios!")
 
                             print(f"🔄 [Worker] Redirecionando para a aula: {self.media_url}")
                             page.goto(self.media_url, timeout=60000)
                             page.wait_for_load_state("domcontentloaded")
                             page.wait_for_timeout(4000)
 
-                            # Atualiza cookies para a sessão autenticada
                             self.cookies_list = context.cookies()
                             self.cookie_string = "; ".join([f"{c['name']}={c['value']}" for c in self.cookies_list])
 
-                        # -----------------------------------------------------------------
-                        # 1. Procura por iframe do Vimeo/YouTube/Panda após estar logado
                         for iframe in page.locator("iframe").all():
                             try:
                                 src = iframe.get_attribute("src") or ""
@@ -338,7 +351,6 @@ class PRTDownloadWorker(QThread):
                             except Exception:
                                 continue
 
-                        # 2. Checa frames do Playwright
                         if not real_video_url:
                             for frame in page.frames:
                                 frame_url = frame.url
@@ -348,12 +360,10 @@ class PRTDownloadWorker(QThread):
                                         print(f"🎯 [Frame Hunter] Vídeo localizado via Frame: {real_video_url}")
                                         break
 
-                        # 3. Usa link interceptado
                         if not real_video_url and self.captured_video_url:
                             real_video_url = self.captured_video_url
                             print(f"🎯 [Network Hunter] Usando stream/player interceptado: {real_video_url}")
 
-                        # 4. Busca Vimeo ID no HTML
                         if not real_video_url:
                             html_content = page.content()
                             vimeo_match = re.search(r'player\.vimeo\.com/video/(\d+)', html_content) or re.search(r'vimeo\.com/(\d+)', html_content)
@@ -386,11 +396,9 @@ class PRTDownloadWorker(QThread):
                     }
                 }
 
-                # Configuração do FFmpeg se instalado
                 if FFMPEG_PATH:
                     ydl_opts['ffmpeg_location'] = FFMPEG_PATH
                 else:
-                    # Se não houver ffmpeg, tenta baixar formato único pré-mesclado para não travar
                     ydl_opts['format'] = 'best'
                 
                 if hasattr(self, 'cookie_string') and self.cookie_string:

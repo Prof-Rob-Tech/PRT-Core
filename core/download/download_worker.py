@@ -28,6 +28,13 @@ try:
 except ImportError:
     sync_playwright = None
 
+# Detecção automática do FFmpeg portátil
+try:
+    import imageio_ffmpeg
+    FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
+except ImportError:
+    FFMPEG_PATH = None
+
 
 class UniversoCourseMapper:
     """Mapeador HTTP em segundo plano (100% thread-safe)."""
@@ -66,21 +73,32 @@ class UniversoCourseMapper:
                     parsed = urllib.parse.urlparse(url)
                     login_url = f"{parsed.scheme}://{parsed.netloc}/wp-login.php"
                     page.goto(login_url, timeout=60000)
+                    page.wait_for_load_state("domcontentloaded")
                     
-                    page.fill("input[name='log'], #user_login, input[type='email'], input[type='text']", self.username)
-                    page.fill("input[name='pwd'], #user_pass, input[type='password']", self.password)
-                    page.click("#wp-submit, input[type='submit'], button[type='submit']")
-                    
-                    print("✅ [Mapper] Formulário enviado. Aguardando...")
-                    page.wait_for_load_state("domcontentloaded", timeout=20000)
-                    page.wait_for_timeout(4000) 
+                    user_input = page.locator("input[name='log'], #user_login, input[name='username'], input[type='email']").first
+                    pass_input = page.locator("input[name='pwd'], #user_pass, input[name='password'], input[type='password']").first
+                    submit_btn = page.locator("#wp-submit, input[type='submit'], button[type='submit'], input[name='login']").first
+
+                    if user_input.is_visible():
+                        user_input.click()
+                        user_input.fill("")
+                        user_input.type(self.username, delay=50)
+
+                        pass_input.click()
+                        pass_input.fill("")
+                        pass_input.type(self.password, delay=50)
+
+                        submit_btn.click()
+                        print("✅ [Mapper] Formulário enviado. Aguardando...")
+                        page.wait_for_load_state("domcontentloaded", timeout=20000)
+                        page.wait_for_timeout(4000)
                 except Exception as e:
                     print(f"[Mapper] Aviso no login: {e}")
 
             print(f"🌐 [Mapper] Acessando página do curso: {url}")
             page.goto(url, timeout=60000)
             page.wait_for_load_state("domcontentloaded", timeout=15000)
-            page.wait_for_timeout(3000) 
+            page.wait_for_timeout(3000)
 
             try:
                 for selector in ["h1.entry-title", "h1.course-title", "h1", ".ld-course-title", "h2.entry-title"]:
@@ -170,6 +188,8 @@ class PRTDownloadWorker(QThread):
         module_index: int = 1,
         lesson_index: int = 1,
         lesson_name: str = "Aula",
+        username: str = "",
+        password: str = "",
         parent=None
     ):
         super().__init__(parent)
@@ -184,6 +204,8 @@ class PRTDownloadWorker(QThread):
         self.module_index = module_index
         self.lesson_index = lesson_index
         self.lesson_name = lesson_name
+        self.username = username
+        self.password = password
         self.captured_video_url = None
 
     def run(self):
@@ -229,75 +251,81 @@ class PRTDownloadWorker(QThread):
                         page.wait_for_load_state("domcontentloaded")
                         page.wait_for_timeout(3000)
 
-                        # --- RESGATA LOGIN E SENHA DA INTERFACE ---
-                        user = ""
-                        passw = ""
-                        try:
+                        # --- RESGATAR CREDENCIAIS DA INTERFACE / PROPRIEDADES ---
+                        user = self.username
+                        passw = self.password
+
+                        if not user or not passw:
                             parent_obj = self.parent()
                             if parent_obj:
-                                if hasattr(parent_obj, 'username_input'):
-                                    user = parent_obj.username_input.text().strip()
-                                    passw = parent_obj.password_input.text().strip()
-                                elif hasattr(parent_obj, 'username'):
-                                    user = getattr(parent_obj, 'username', '')
-                                    passw = getattr(parent_obj, 'password', '')
-                        except Exception as e:
-                            print(f"⚠️ [Worker] Erro ao obter credenciais da UI: {e}")
+                                try:
+                                    user = user or getattr(parent_obj, 'username', '') or (parent_obj.username_input.text().strip() if hasattr(parent_obj, 'username_input') else '')
+                                    passw = passw or getattr(parent_obj, 'password', '') or (parent_obj.password_input.text().strip() if hasattr(parent_obj, 'password_input') else '')
+                                except Exception:
+                                    pass
 
-                        # --- VERIFICAÇÃO E INJEÇÃO EM TODAS AS FRAMES DA PÁGINA ---
-                        def tentar_fazer_login(contexto_pagina):
-                            """Tenta preencher formulário de login no contexto principal ou em iframes."""
-                            # Seletores possíveis para os campos
-                            login_field = contexto_pagina.locator("input[name='username'], input[name='log'], #user_login, input[type='email']").first
-                            pass_field = contexto_pagina.locator("input[name='password'], input[name='pwd'], #user_pass, input[type='password']").first
-                            submit_btn = contexto_pagina.locator("input[name='login'], button[name='login'], #wp-submit, input[type='submit'], button:has-text('Entrar')").first
+                        print(f"🔑 [Worker] Credenciais resgatadas -> Usuário: '{user}' | Senha: '{'*'*len(passw) if passw else ''}'")
 
-                            if login_field.is_visible(timeout=2000):
-                                print(f"🔑 [Worker] Campos encontrados! Preenchendo para: {user}")
-                                login_field.click()
-                                login_field.fill(user)
-                                pass_field.click()
-                                pass_field.fill(passw)
-                                submit_btn.click()
-                                return True
-                            return False
-
-                        # Se a aula exibe o aviso de bloqueio, clica em "Entrar"
+                        # --- DETECÇÃO E PREENCHIMENTO DO LOGIN ---
                         sem_acesso = page.locator("text='VOCÊ NÃO TEM ACESSO A ESTA AULA'")
                         btn_entrar = page.locator("a:has-text('Entrar'), button:has-text('Entrar')")
 
-                        if sem_acesso.is_visible() or btn_entrar.is_visible() or "meus-cursos" in page.url or "wp-login" in page.url:
-                            print("🔑 [Worker] Detectado bloqueio ou tela de login!")
+                        needs_login = False
+                        try:
+                            if sem_acesso.is_visible() or btn_entrar.is_visible() or "meus-cursos" in page.url or "wp-login" in page.url:
+                                needs_login = True
+                        except Exception:
+                            pass
 
-                            if btn_entrar.is_visible() and "meus-cursos" not in page.url:
-                                btn_entrar.first.click()
-                                page.wait_for_load_state("domcontentloaded")
-                                page.wait_for_timeout(3000)
+                        if needs_login:
+                            print("🔑 [Worker] Tela de bloqueio/login detectada!")
 
-                            # Tenta preencher no documento principal
-                            sucesso = tentar_fazer_login(page)
+                            if btn_entrar.is_visible() and "meus-cursos" not in page.url and "wp-login" not in page.url:
+                                try:
+                                    btn_entrar.first.click()
+                                    page.wait_for_load_state("domcontentloaded")
+                                    page.wait_for_timeout(2000)
+                                except Exception:
+                                    pass
 
-                            # Se não achou na página principal, procura dentro de todos os iFrames presentes
-                            if not sucesso:
-                                print("🔍 [Worker] Procurando formulário de login dentro de iFrames...")
-                                for frame in page.frames:
-                                    try:
-                                        if tentar_fazer_login(frame):
-                                            sucesso = True
-                                            break
-                                    except Exception:
-                                        continue
+                            if user and passw:
+                                print(f"📝 [Worker] Preenchendo formulário na página: {page.url}")
+                                
+                                user_input = page.locator("input[name='username'], input[name='log'], #user_login").first
+                                pass_input = page.locator("input[name='password'], input[name='pwd'], #user_pass").first
+                                submit_btn = page.locator("input[name='login'], button[name='login'], #wp-submit, input[type='submit']").first
 
-                            page.wait_for_load_state("domcontentloaded")
-                            page.wait_for_timeout(4000)
+                                try:
+                                    user_input.wait_for(state="visible", timeout=5000)
+                                    if user_input.is_visible():
+                                        user_input.click()
+                                        user_input.fill("")
+                                        user_input.type(user, delay=50)
 
-                            # Retorna para a página da aula com o login ativo
-                            print(f"🔄 [Worker] Retornando para a aula liberada: {self.media_url}")
+                                        pass_input.click()
+                                        pass_input.fill("")
+                                        pass_input.type(passw, delay=50)
+
+                                        page.wait_for_timeout(1000)
+                                        submit_btn.click()
+                                        
+                                        page.wait_for_load_state("domcontentloaded")
+                                        page.wait_for_timeout(4000)
+                                except Exception as err:
+                                    print(f"⚠️ [Worker] Erro ao preencher campos de login: {err}")
+                            else:
+                                print("⚠️ [Worker] AVISO: E-mail ou senha estão vazios!")
+
+                            print(f"🔄 [Worker] Redirecionando para a aula: {self.media_url}")
                             page.goto(self.media_url, timeout=60000)
                             page.wait_for_load_state("domcontentloaded")
                             page.wait_for_timeout(4000)
-                        # -----------------------------------------------------------------
 
+                            # Atualiza cookies para a sessão autenticada
+                            self.cookies_list = context.cookies()
+                            self.cookie_string = "; ".join([f"{c['name']}={c['value']}" for c in self.cookies_list])
+
+                        # -----------------------------------------------------------------
                         # 1. Procura por iframe do Vimeo/YouTube/Panda após estar logado
                         for iframe in page.locator("iframe").all():
                             try:
@@ -357,6 +385,13 @@ class PRTDownloadWorker(QThread):
                         'Referer': self.media_url 
                     }
                 }
+
+                # Configuração do FFmpeg se instalado
+                if FFMPEG_PATH:
+                    ydl_opts['ffmpeg_location'] = FFMPEG_PATH
+                else:
+                    # Se não houver ffmpeg, tenta baixar formato único pré-mesclado para não travar
+                    ydl_opts['format'] = 'best'
                 
                 if hasattr(self, 'cookie_string') and self.cookie_string:
                     ydl_opts['http_headers']['Cookie'] = self.cookie_string

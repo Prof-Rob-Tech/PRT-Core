@@ -55,3 +55,15 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+import traceback
+
+def log_uncaught_exceptions(exctype, value, tb):
+    """Captura exceções não tratadas e imprime detalhes no terminal."""
+    print("\n" + "=" * 80)
+    print("❌ ERRO CRÍTICO NÃO TRATADO:")
+    print("".join(traceback.format_exception(exctype, value, tb)))
+    print("=" * 80 + "\n")
+
+# Registra o hook global no Python
+sys.excepthook = log_uncaught_exceptions

@@ -206,11 +206,10 @@ class PRTDownloadWorker(QThread):
 
             def _on_request(request):
                 req_url = request.url
-                # Filtra estritamente para pegar apenas MÍDIAS, ignorando scripts .js da API do Vimeo
                 if not req_url.endswith(".js") and "player.js" not in req_url:
-                    if any(ext in req_url for ext in [".m3u8", ".mpd", "pandavideo.com", "vidalytics.com", "vturb.com"]):
+                    if any(ext in req_url for ext in [".m3u8", ".mpd", "player.vimeo.com/video/", "pandavideo.com", "vidalytics.com", "vturb.com"]):
                         if not self.captured_video_url:
-                            print(f"📡 [Network Intercept] Stream de vídeo detectado: {req_url}")
+                            print(f"📡 [Network Intercept] Stream/Player de vídeo detectado: {req_url}")
                             self.captured_video_url = req_url
 
             if sync_playwright:
@@ -230,46 +229,103 @@ class PRTDownloadWorker(QThread):
                         page.wait_for_load_state("domcontentloaded")
                         page.wait_for_timeout(3000)
 
-                        # Se redirecionou para tela de login por perda de cookie, refaz o login na hora
-                        if "wp-login.php" in page.url or page.locator("input[name='log']").is_visible():
-                            print("🔑 [Worker] Sessão expirada. Autenticando novamente...")
-                            parsed = urllib.parse.urlparse(self.media_url)
-                            login_url = f"{parsed.scheme}://{parsed.netloc}/wp-login.php"
-                            page.goto(login_url, timeout=30000)
-                            
-                            # Tenta pegar credenciais enviadas via parent se existirem
-                            if hasattr(self.parent(), 'username') and self.parent().username:
-                                page.fill("input[name='log']", self.parent().username)
-                                page.fill("input[name='pwd']", self.parent().password)
-                                page.click("#wp-submit")
+                        # --- RESGATA LOGIN E SENHA DA INTERFACE ---
+                        user = ""
+                        passw = ""
+                        try:
+                            parent_obj = self.parent()
+                            if parent_obj:
+                                if hasattr(parent_obj, 'username_input'):
+                                    user = parent_obj.username_input.text().strip()
+                                    passw = parent_obj.password_input.text().strip()
+                                elif hasattr(parent_obj, 'username'):
+                                    user = getattr(parent_obj, 'username', '')
+                                    passw = getattr(parent_obj, 'password', '')
+                        except Exception as e:
+                            print(f"⚠️ [Worker] Erro ao obter credenciais da UI: {e}")
+
+                        # --- VERIFICAÇÃO E INJEÇÃO EM TODAS AS FRAMES DA PÁGINA ---
+                        def tentar_fazer_login(contexto_pagina):
+                            """Tenta preencher formulário de login no contexto principal ou em iframes."""
+                            # Seletores possíveis para os campos
+                            login_field = contexto_pagina.locator("input[name='username'], input[name='log'], #user_login, input[type='email']").first
+                            pass_field = contexto_pagina.locator("input[name='password'], input[name='pwd'], #user_pass, input[type='password']").first
+                            submit_btn = contexto_pagina.locator("input[name='login'], button[name='login'], #wp-submit, input[type='submit'], button:has-text('Entrar')").first
+
+                            if login_field.is_visible(timeout=2000):
+                                print(f"🔑 [Worker] Campos encontrados! Preenchendo para: {user}")
+                                login_field.click()
+                                login_field.fill(user)
+                                pass_field.click()
+                                pass_field.fill(passw)
+                                submit_btn.click()
+                                return True
+                            return False
+
+                        # Se a aula exibe o aviso de bloqueio, clica em "Entrar"
+                        sem_acesso = page.locator("text='VOCÊ NÃO TEM ACESSO A ESTA AULA'")
+                        btn_entrar = page.locator("a:has-text('Entrar'), button:has-text('Entrar')")
+
+                        if sem_acesso.is_visible() or btn_entrar.is_visible() or "meus-cursos" in page.url or "wp-login" in page.url:
+                            print("🔑 [Worker] Detectado bloqueio ou tela de login!")
+
+                            if btn_entrar.is_visible() and "meus-cursos" not in page.url:
+                                btn_entrar.first.click()
+                                page.wait_for_load_state("domcontentloaded")
                                 page.wait_for_timeout(3000)
-                                page.goto(self.media_url, timeout=60000)
 
-                        # 1. Busca por IFRAME do Vimeo/YouTube/Panda (Método mais confiável)
-                        iframes = page.locator("iframe").all()
-                        for iframe in iframes:
-                            src = iframe.get_attribute("src") or ""
-                            if "vimeo.com" in src or "youtube.com" in src or "panda" in src:
-                                real_video_url = src
-                                print(f"🎯 [IFrame Hunter] Vídeo localizado via IFrame: {real_video_url}")
-                                break
+                            # Tenta preencher no documento principal
+                            sucesso = tentar_fazer_login(page)
 
-                        # 2. Busca por Frames aninhados
+                            # Se não achou na página principal, procura dentro de todos os iFrames presentes
+                            if not sucesso:
+                                print("🔍 [Worker] Procurando formulário de login dentro de iFrames...")
+                                for frame in page.frames:
+                                    try:
+                                        if tentar_fazer_login(frame):
+                                            sucesso = True
+                                            break
+                                    except Exception:
+                                        continue
+
+                            page.wait_for_load_state("domcontentloaded")
+                            page.wait_for_timeout(4000)
+
+                            # Retorna para a página da aula com o login ativo
+                            print(f"🔄 [Worker] Retornando para a aula liberada: {self.media_url}")
+                            page.goto(self.media_url, timeout=60000)
+                            page.wait_for_load_state("domcontentloaded")
+                            page.wait_for_timeout(4000)
+                        # -----------------------------------------------------------------
+
+                        # 1. Procura por iframe do Vimeo/YouTube/Panda após estar logado
+                        for iframe in page.locator("iframe").all():
+                            try:
+                                src = iframe.get_attribute("src") or ""
+                                if any(domain in src for domain in ["vimeo.com", "youtube.com", "pandavideo", "vturb"]):
+                                    if not src.endswith(".js"):
+                                        real_video_url = src
+                                        print(f"🎯 [IFrame Element] Player localizado via DOM: {real_video_url}")
+                                        break
+                            except Exception:
+                                continue
+
+                        # 2. Checa frames do Playwright
                         if not real_video_url:
                             for frame in page.frames:
                                 frame_url = frame.url
-                                if any(p in frame_url for p in ["vimeo.com/video/", "youtube.com/embed/"]):
+                                if any(domain in frame_url for domain in ["vimeo.com/video/", "youtube.com/embed/"]):
                                     if not frame_url.endswith(".js"):
                                         real_video_url = frame_url
                                         print(f"🎯 [Frame Hunter] Vídeo localizado via Frame: {real_video_url}")
                                         break
 
-                        # 3. Usa o Stream detectado pela rede se os frames falharem
+                        # 3. Usa link interceptado
                         if not real_video_url and self.captured_video_url:
                             real_video_url = self.captured_video_url
-                            print(f"🎯 [Network Hunter] Usando stream interceptado: {real_video_url}")
+                            print(f"🎯 [Network Hunter] Usando stream/player interceptado: {real_video_url}")
 
-                        # 4. Procura por Vimeo ID diretamente no HTML
+                        # 4. Busca Vimeo ID no HTML
                         if not real_video_url:
                             html_content = page.content()
                             vimeo_match = re.search(r'player\.vimeo\.com/video/(\d+)', html_content) or re.search(r'vimeo\.com/(\d+)', html_content)
@@ -305,7 +361,7 @@ class PRTDownloadWorker(QThread):
                 if hasattr(self, 'cookie_string') and self.cookie_string:
                     ydl_opts['http_headers']['Cookie'] = self.cookie_string
 
-                print(f"🚀 [yt-dlp] Iniciando download do link: {real_video_url}")
+                print(f"🚀 [yt-dlp] Enviando URL válida para o downloader: {real_video_url}")
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     ydl.download([real_video_url]) 
             else:

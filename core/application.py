@@ -85,5 +85,5 @@ class Application:
 
     def run(self) -> int:
         """Exibe a interface e inicia o loop de eventos Qt."""
-        self.main_window.show()
+        self.main_window.showMaximized()
         return self.qt_app.exec()

@@ -207,7 +207,7 @@ class ConnectorPage(QWidget):
 
         # Nome do Curso
         self.txt_course = QLineEdit()
-        self.txt_course.setPlaceholderText("Nome do Curso (Sera preenchido automaticamente ao mapear)")
+        self.txt_course.setPlaceholderText("Nome do Curso (Será preenchido automaticamente ao mapear)")
         struct_group.addWidget(self.txt_course)
 
         # Módulo e Aula em paralelo
@@ -280,7 +280,7 @@ class ConnectorPage(QWidget):
 
         layout.addWidget(card_capture)
 
-        # 3. Tabela de Mídias Concluídas
+        # 3. Tabela de Mídias Concluídas (BLOCO ÚNICO SEM DUPLICAÇÕES)
         card_table = QFrame()
         card_table.setObjectName("cardFrame")
         card_table.setStyleSheet("""
@@ -312,14 +312,20 @@ class ConnectorPage(QWidget):
         lbl_tbl_title.setStyleSheet("font-weight: bold; font-size: 13px; margin-bottom: 8px;")
         t_layout.addWidget(lbl_tbl_title)
 
-        self.table = QTableWidget(0, 3)
-        self.table.setHorizontalHeaderLabels(["Título / Nome do Arquivo", "Caminho Salvo", "Status"])
+        self.table = QTableWidget(0, 4)
+        self.table.setHorizontalHeaderLabels(["#", "Título / Nome do Arquivo", "Caminho Salvo", "Status"])
         
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.Stretch)
-        header.setSectionResizeMode(1, QHeaderView.Stretch)
-        header.setSectionResizeMode(2, QHeaderView.Fixed)
-        self.table.setColumnWidth(2, 120)
+        header.setSectionResizeMode(0, QHeaderView.Fixed)
+        self.table.setColumnWidth(0, 40)
+        
+        header.setSectionResizeMode(1, QHeaderView.Interactive)
+        self.table.setColumnWidth(1, 260)
+        
+        header.setSectionResizeMode(2, QHeaderView.Stretch)
+        
+        header.setSectionResizeMode(3, QHeaderView.Fixed)
+        self.table.setColumnWidth(3, 100)
 
         self.table.setMinimumHeight(220)
 
@@ -335,7 +341,6 @@ class ConnectorPage(QWidget):
             sig = inspect.signature(PRTDownloadWorker.__init__)
             param_names = set(sig.parameters.keys())
 
-            # Mapeamento de sinonimos de argumentos comuns
             if "url" in param_names and "media_url" in kwargs:
                 kwargs["url"] = kwargs["media_url"]
             if "output_dir" in param_names and "output_path" in kwargs:
@@ -486,34 +491,34 @@ class ConnectorPage(QWidget):
 
         media_type, quality = self._get_selected_quality_params()
         lesson = self.lessons_queue[self.current_lesson_index]
-        self.lbl_status.setText(f"⏳ Baixando Aula {self.current_lesson_index + 1}/{len(self.lessons_queue)}: {lesson.get('title', '')}")
+        lesson_title = lesson.get('title', '') if isinstance(lesson, dict) else f"Aula {self.current_lesson_index + 1}"
+        self.lbl_status.setText(f"⏳ Baixando Aula {self.current_lesson_index + 1}/{len(self.lessons_queue)}: {lesson_title}")
 
         user = self.txt_user.text().strip() or None
         pwd = self.txt_pass.text().strip() or None
         output_dir = self.txt_folder.text().strip()
         
-        # 1. Prioridade do Nome do Curso
-        detected_course = lesson.get("course_title") or lesson.get("course")
+        detected_course = lesson.get("course_title") or lesson.get("course") if isinstance(lesson, dict) else None
         if detected_course and detected_course != "Curso Mapeado":
             course = detected_course
-            self.txt_course.setText(course)  # Atualiza o campo visível na interface
+            self.txt_course.setText(course)
         else:
             course = self.txt_course.text().strip() or "Curso Mapeado"
 
-        # 2. CORREÇÃO: Capturando o Módulo e o Índice corretamente!
-        # Tenta pegar por várias chaves diferentes que o seu scraper possa estar usando
-        mod_name = lesson.get("module") or lesson.get("module_name") or lesson.get("module_title")
-        mod_idx = lesson.get("module_index")
+        mod_name = lesson.get("module") or lesson.get("module_name") or lesson.get("module_title") if isinstance(lesson, dict) else None
+        mod_idx = lesson.get("module_index") if isinstance(lesson, dict) else None
 
-        # Se o scraper não achar o nome do módulo no site, usamos o da tela ou "Módulo 1"
         if not mod_name:
             mod_name = self.txt_module_name.text().strip() or "Módulo 1"
         
         if mod_idx is None:
             mod_idx = self.spin_module_idx.value()
 
+        lesson_url = lesson.get("url") if isinstance(lesson, dict) else str(lesson)
+        lesson_idx = lesson.get("index", self.current_lesson_index + 1) if isinstance(lesson, dict) else self.current_lesson_index + 1
+
         self.active_worker = self._create_worker(
-            media_url=lesson.get("url"),
+            media_url=lesson_url,
             output_path=output_dir,
             media_type=media_type,
             quality=quality,
@@ -521,9 +526,9 @@ class ConnectorPage(QWidget):
             password=pwd,
             course_name=course,
             module_name=mod_name,
-            module_index=mod_idx,  # <- Faltava passar isso aqui para o worker criar as pastas!
-            lesson_index=lesson.get("index", self.current_lesson_index + 1),
-            lesson_name=lesson.get("title"),
+            module_index=mod_idx,
+            lesson_index=lesson_idx,
+            lesson_name=lesson_title,
             parent=self
         )
 
@@ -541,78 +546,115 @@ class ConnectorPage(QWidget):
         self.active_worker.start()
 
     def _on_progress(self, data: dict):
-        """Atualiza a barra de progresso e os textos na interface."""
         percent = data.get("percent", 0)
-        
-        # Atualiza a barrinha visual
         if hasattr(self, 'progress_bar'):
             self.progress_bar.setValue(int(percent))
             
-        # Atualiza o texto de "Aguardando link..." para os dados reais
         if hasattr(self, 'lbl_status'):
             speed = data.get("speed", "N/A")
             eta = data.get("eta", "N/A")
             self.lbl_status.setText(f"Baixando: {percent:.1f}% | Velocidade: {speed} | Tempo Restante: {eta}")
 
     def _on_status(self, _status_code: str, message: str):
-        """Atualiza a mensagem de status (texto) na interface."""
         if hasattr(self, 'lbl_status'):
             self.lbl_status.setText(f"{message}")
 
     # ==========================================================
-    # NOVAS FUNÇÕES ADICIONADAS PARA CORRIGIR OS ERROS
+    # GERENCIAMENTO DE LINHAS DA TABELA E DOWNLOADS (ULTRA SEGURO)
     # ==========================================================
 
-    def _add_to_table(self, title: str, filepath: str, status: str):
-        """Adiciona um registro na tabela de mídias concluídas."""
-        if hasattr(self, 'table'):
+    def _add_to_table(self, title: str, filepath: str, status: str) -> None:
+        """Adiciona uma linha na tabela e força a renderização visual imediata."""
+        try:
+            if not hasattr(self, 'table') or self.table is None:
+                return
+
             row = self.table.rowCount()
             self.table.insertRow(row)
-            self.table.setItem(row, 0, QTableWidgetItem(title))
-            self.table.setItem(row, 1, QTableWidgetItem(filepath))
-            self.table.setItem(row, 2, QTableWidgetItem(status))
+
+            num_str = f"{row + 1:02d}"
+            title_str = str(title) if title else "Mídia Sem Título"
+            path_str = str(filepath) if filepath else "N/A"
+            status_str = str(status) if status else "Concluído"
+
+            item_num = QTableWidgetItem(num_str)
+            item_title = QTableWidgetItem(title_str)
+            item_path = QTableWidgetItem(path_str)
+            item_status = QTableWidgetItem(status_str)
+
+            try:
+                align_center = int(Qt.AlignmentFlag.AlignCenter) if hasattr(Qt, 'AlignmentFlag') else int(Qt.AlignCenter)
+                item_num.setTextAlignment(align_center)
+                item_status.setTextAlignment(align_center)
+            except Exception:
+                pass
+
+            self.table.setItem(row, 0, item_num)
+            self.table.setItem(row, 1, item_title)
+            self.table.setItem(row, 2, item_path)
+            self.table.setItem(row, 3, item_status)
+
             self.table.scrollToBottom()
+            self.table.viewport().update()
+        except Exception as e:
+            print(f"❌ Erro ao adicionar item na tabela: {e}")
 
     @Slot(str)
-    def _on_finished(self, filepath: str) -> None:
+    def _on_finished(self, filepath: str = "") -> None:
         """Lida com a conclusão de um download único (avulso)."""
         self.lbl_status.setText("✅ Download concluído com sucesso!")
         self.btn_download.setEnabled(True)
         self.btn_map_course.setEnabled(True)
         self.progress_bar.setValue(100)
         
-        filename = os.path.basename(filepath)
+        filename = os.path.basename(filepath) if filepath else "Mídia Salva"
         self._add_to_table(filename, filepath, "Concluído")
 
     @Slot(str)
-    def _on_error(self, err_msg: str) -> None:
+    def _on_error(self, err_msg: str = "") -> None:
         """Lida com erro em um download único (avulso)."""
         self.lbl_status.setText(f"❌ Erro no download: {err_msg}")
         self.btn_download.setEnabled(True)
         self.btn_map_course.setEnabled(True)
 
     @Slot(str)
-    def _on_batch_finished(self, filepath: str) -> None:
+    def _on_batch_finished(self, filepath: str = "") -> None:
         """Lida com a conclusão de uma aula e puxa a próxima da fila."""
-        lesson = self.lessons_queue[self.current_lesson_index]
-        title = lesson.get("title", os.path.basename(filepath))
-        self._add_to_table(title, filepath, "Concluído")
-        
-        print(f"✅ [Download] Arquivo salvo com sucesso em: {filepath}")
-        
-        # Avança para a próxima aula
-        self.current_lesson_index += 1
-        self._download_next_in_queue()
+        try:
+            title = ""
+            if hasattr(self, 'lessons_queue') and self.lessons_queue and 0 <= self.current_lesson_index < len(self.lessons_queue):
+                lesson = self.lessons_queue[self.current_lesson_index]
+                if isinstance(lesson, dict):
+                    title = lesson.get("title") or lesson.get("name") or ""
+
+            if not title and filepath:
+                title = os.path.basename(filepath)
+            if not title:
+                title = f"Aula {self.current_lesson_index + 1:02d}"
+
+            self._add_to_table(title, filepath, "Concluído")
+            print(f"✅ [Download] Arquivo salvo em: {filepath}")
+        except Exception as e:
+            print(f"⚠️ Erro ao atualizar tabela: {e}")
+            self._add_to_table(f"Aula {self.current_lesson_index + 1:02d}", str(filepath), "Concluído")
+        finally:
+            self.current_lesson_index += 1
+            self._download_next_in_queue()
 
     @Slot(str)
-    def _on_batch_error(self, err_msg: str) -> None:
+    def _on_batch_error(self, err_msg: str = "") -> None:
         """Lida com erro em uma aula da fila e pula para a próxima."""
-        lesson = self.lessons_queue[self.current_lesson_index]
-        title = lesson.get("title", f"Aula {self.current_lesson_index + 1}")
-        self._add_to_table(title, "N/A", "Falha")
-        
-        print(f"❌ [Download] Erro na aula {self.current_lesson_index + 1}: {err_msg}")
-        
-        # Avança para a próxima aula mesmo se der erro
-        self.current_lesson_index += 1
-        self._download_next_in_queue()
+        try:
+            title = f"Aula {self.current_lesson_index + 1:02d}"
+            if hasattr(self, 'lessons_queue') and self.lessons_queue and 0 <= self.current_lesson_index < len(self.lessons_queue):
+                lesson = self.lessons_queue[self.current_lesson_index]
+                if isinstance(lesson, dict):
+                    title = lesson.get("title") or title
+
+            self._add_to_table(title, "N/A", "Falha")
+            print(f"❌ [Download] Erro na aula {self.current_lesson_index + 1}: {err_msg}")
+        except Exception as e:
+            print(f"⚠️ Erro ao registrar falha na tabela: {e}")
+        finally:
+            self.current_lesson_index += 1
+            self._download_next_in_queue()

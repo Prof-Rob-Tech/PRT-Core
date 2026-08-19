@@ -31,7 +31,7 @@ except ImportError:
 
 
 class UniversoCourseMapper:
-    """Mapeador HTTP em segundo plano para Cursos."""
+    """Mapeador de Cursos da Área de Membros."""
 
     def __init__(self, username: str = None, password: str = None):
         self.username = username
@@ -52,7 +52,7 @@ class UniversoCourseMapper:
         cookies_list = []
 
         if not sync_playwright:
-            print("[Mapper] Erro: Playwright não está instalado.")
+            print("[Mapper] Erro: Playwright não instalado.")
             return {"course_title": course_title, "lessons": lessons, "cookie_string": cookie_string, "cookies_list": cookies_list}
 
         with sync_playwright() as p:
@@ -62,7 +62,7 @@ class UniversoCourseMapper:
 
             if self.username and self.password:
                 try:
-                    print("🔑 [Mapper] Acessando página de login principal...")
+                    print("🔑 [Mapper] Acessando página de login...")
                     parsed = urllib.parse.urlparse(url)
                     login_url = f"{parsed.scheme}://{parsed.netloc}/wp-login.php"
                     page.goto(login_url, timeout=60000)
@@ -82,13 +82,12 @@ class UniversoCourseMapper:
                         pass_input.type(self.password, delay=50)
 
                         submit_btn.click()
-                        print("✅ [Mapper] Formulário enviado. Aguardando...")
                         page.wait_for_load_state("domcontentloaded", timeout=20000)
                         page.wait_for_timeout(4000)
                 except Exception as e:
                     print(f"[Mapper] Aviso no login: {e}")
 
-            print(f"🌐 [Mapper] Acessando página do curso: {url}")
+            print(f"🌐 [Mapper] Acessando curso: {url}")
             page.goto(url, timeout=60000)
             page.wait_for_load_state("domcontentloaded", timeout=15000)
             page.wait_for_timeout(3000)
@@ -170,7 +169,6 @@ class UniversoCourseMapper:
 
             browser.close()
 
-        print(f"[UniversoCourseMapper] Mapeamento concluído com {len(lessons)} aula(s).")
         return {
             "course_title": course_title,
             "lessons": lessons,
@@ -190,7 +188,7 @@ class UniversoDownloadWorker(QThread):
     def __init__(
         self,
         media_url: str,
-        output_path: str,
+        output_path: str = "",
         media_type: str = "video",
         quality: str = "best",
         cookie_string: str = "",
@@ -212,8 +210,18 @@ class UniversoDownloadWorker(QThread):
         self.cookies_list = cookies_list or []
         self.course_name = course_name or "Curso"
         self.module_name = module_name or "Módulo 1"
-        self.module_index = module_index if isinstance(module_index, int) else 1
-        self.lesson_index = lesson_index if isinstance(lesson_index, int) else 1
+        
+        # Tratamento seguro contra valores None ou inválidos
+        try:
+            self.module_index = int(module_index) if module_index is not None else 1
+        except (ValueError, TypeError):
+            self.module_index = 1
+
+        try:
+            self.lesson_index = int(lesson_index) if lesson_index is not None else 1
+        except (ValueError, TypeError):
+            self.lesson_index = 1
+
         self.lesson_name = lesson_name or "Aula"
         self.username = username or ""
         self.password = password or ""
@@ -279,7 +287,7 @@ class UniversoDownloadWorker(QThread):
                             pass
 
                         if needs_login:
-                            print("🔑 [Universo Worker] Efetuando login na área de membros...")
+                            print("🔑 [Universo Worker] Efetuando login...")
                             if btn_entrar.is_visible() and "meus-cursos" not in page.url and "wp-login" not in page.url:
                                 try:
                                     btn_entrar.first.click()
@@ -310,9 +318,8 @@ class UniversoDownloadWorker(QThread):
                                         page.wait_for_load_state("domcontentloaded")
                                         page.wait_for_timeout(4000)
                                 except Exception as err:
-                                    print(f"⚠️ Erro ao preencher login: {err}")
+                                    print(f"⚠️ Erro no login: {err}")
 
-                            print(f"🔄 Retornando para a aula: {self.media_url}")
                             page.goto(self.media_url, timeout=60000)
                             page.wait_for_load_state("domcontentloaded")
                             page.wait_for_timeout(4000)
@@ -359,7 +366,7 @@ class UniversoDownloadWorker(QThread):
             if real_video_url.startswith("//"):
                 real_video_url = "https:" + real_video_url
 
-            self.status_changed.emit("downloading", f"⬇️ Baixando vídeo da aula: {safe_lesson_title}...")
+            self.status_changed.emit("downloading", f"⬇️ Baixando aula: {safe_lesson_title}...")
 
             if yt_dlp:
                 out_template = os.path.join(target_dir, f"{safe_lesson_title}.%(ext)s")
@@ -386,7 +393,7 @@ class UniversoDownloadWorker(QThread):
                 if FFMPEG_PATH:
                     ydl_opts['ffmpeg_location'] = FFMPEG_PATH
 
-                print(f"🚀 [Universo Worker] Enviando mídia para o yt-dlp: {real_video_url}")
+                print(f"🚀 [Universo Worker] Baixando stream: {real_video_url}")
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     ydl.download([real_video_url])
 
@@ -402,7 +409,7 @@ class UniversoDownloadWorker(QThread):
             self.download_finished.emit(final_filepath)
 
         except Exception as e:
-            self.download_error.emit(f"Erro ao baixar aula {self.lesson_name}: {str(e)}")
+            self.download_error.emit(f"Erro ao baixar {self.lesson_name}: {str(e)}")
 
     def _ydl_hook(self, d):
         if d.get('status') == 'downloading':

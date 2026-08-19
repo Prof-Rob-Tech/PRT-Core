@@ -22,25 +22,25 @@ except ImportError:
 
 
 class YouTubeDownloadWorker(QThread):
-    """Worker 100% isolado apenas para o YouTube."""
+    """Worker isolado focado exclusivamente no YouTube."""
 
     progress_changed = Signal(dict)
     status_changed = Signal(str, str)
     download_finished = Signal(str)
     download_error = Signal(str)
 
-    def __init__(self, media_url: str, output_path: str, parent=None, **kwargs):
+    def __init__(self, media_url: str, output_path: str = "", parent=None, **kwargs):
         super().__init__(parent)
-        self.media_url = media_url or ""
-        self.output_path = output_path or ""
+        self.media_url = str(media_url or "").strip()
+        self.output_path = str(output_path or "").strip()
 
     def run(self):
         try:
-            self.status_changed.emit("extracting", f"🔍 Processando mídia do YouTube: {self.media_url}...")
+            self.status_changed.emit("extracting", f"🔍 Processando YouTube: {self.media_url}...")
             os.makedirs(self.output_path, exist_ok=True)
 
             if not yt_dlp:
-                raise Exception("A biblioteca yt-dlp não está instalada.")
+                raise Exception("A biblioteca yt-dlp não está instalada no ambiente Python.")
 
             out_template = os.path.join(self.output_path, "%(title)s.%(ext)s")
 
@@ -51,7 +51,7 @@ class YouTubeDownloadWorker(QThread):
                 'quiet': False,
                 'no_warnings': True,
                 'no_color': True,
-                'noplaylist': True,  # Baixa apenas o vídeo individual (ignora mix/playlists)
+                'noplaylist': True,
                 'extractor_args': {
                     'youtube': {
                         'player_client': ['mweb', 'android', 'web']

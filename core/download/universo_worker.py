@@ -403,23 +403,32 @@ class UniversoDownloadWorker(QThread):
                         if os.path.exists(base_path + ext):
                             final_filepath = base_path + ext
                             break
-            else:
-                self.progress_changed.emit({"percent": 100, "speed": "0 MB/s", "eta": "00:00"})
 
+            # Atualiza visualmente para 100% e marca como Concluído
+            self.progress_changed.emit({"percent": 100, "speed": "0 B/s", "eta": "00:00"})
+            self.status_changed.emit("finished", "Concluído")
             self.download_finished.emit(final_filepath)
 
         except Exception as e:
             self.download_error.emit(f"Erro ao baixar {self.lesson_name}: {str(e)}")
 
     def _ydl_hook(self, d):
-        if d.get('status') == 'downloading':
+        status = d.get('status')
+        if status == 'downloading':
             total = d.get('total_bytes') or d.get('total_bytes_estimate') or 0
             downloaded = d.get('downloaded_bytes', 0)
             percent = (downloaded / total * 100) if total > 0 else 0
             
+            if percent >= 99.0:
+                percent = 99.0
+                self.status_changed.emit("processing", "⚡ Mesclando áudio e vídeo...")
+
             speed = re.sub(r'\x1b\[[0-9;]*m', '', str(d.get('_speed_str', '0 B/s'))).strip()
             eta = re.sub(r'\x1b\[[0-9;]*m', '', str(d.get('_eta_str', '--:--'))).strip()
             self.progress_changed.emit({"percent": percent, "speed": speed, "eta": eta})
+            
+        elif status == 'finished':
+            self.status_changed.emit("processing", "⚡ Finalizando e salvando arquivo...")
 
     def _sanitize(self, text: str) -> str:
         if not text:

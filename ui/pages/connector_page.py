@@ -118,6 +118,8 @@ class ConnectorPage(QWidget):
                 border-radius: 6px;
                 color: #FFFFFF;
                 padding: 6px 10px;
+                selection-background-color: #09090B; 
+                selection-color: #FFFFFF;            
             }
             QPushButton {
                 background-color: #6366F1;
@@ -376,6 +378,12 @@ class ConnectorPage(QWidget):
             self.txt_folder.setText(chosen)
 
     def _start_download(self) -> None:
+        # --- ADICIONE ESTAS LINHAS NO INÍCIO ---
+        self.txt_user.deselect()
+        self.txt_pass.deselect()
+        self.txt_url.deselect()
+        self.setFocus()  # Tira o cursor piscando
+        # ----------------------------------------
         url = self.txt_url.text().strip()
         if not url:
             self.lbl_status.setText("⚠️ Digite ou cole uma URL válida antes de baixar.")
@@ -430,6 +438,12 @@ class ConnectorPage(QWidget):
         self.active_worker.start()
 
     def _start_course_mapping(self) -> None:
+        # --- ADICIONE ESTAS LINHAS NO INÍCIO ---
+        self.txt_user.deselect()
+        self.txt_pass.deselect()
+        self.txt_url.deselect()
+        self.setFocus()  # Tira o cursor piscando de qualquer campo
+        # ----------------------------------------
         url = self.txt_url.text().strip()
         if not url:
             self.lbl_status.setText("⚠️ Cole o link principal do curso para mapear.")

@@ -67,3 +67,17 @@ def log_uncaught_exceptions(exctype, value, tb):
 
 # Registra o hook global no Python
 sys.excepthook = log_uncaught_exceptions
+
+# No final do seu arquivo main.py, onde o QApplication é criado:
+app = QApplication(sys.argv)
+
+def safe_shutdown():
+    from core.download.youtube_worker import GLOBAL_YOUTUBE_REGISTRY
+    for worker in list(GLOBAL_YOUTUBE_REGISTRY):
+        if hasattr(worker, 'cancel'):
+            worker.cancel()
+        if hasattr(worker, 'quit'):
+            worker.quit()
+            worker.wait(500)
+
+app.aboutToQuit.connect(safe_shutdown)

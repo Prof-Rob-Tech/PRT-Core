@@ -64,7 +64,6 @@ class PRTSidebar(QWidget):
 
     def __init__(self, parent=None, on_navigate=None) -> None:
         super().__init__(parent)
-        # OBRIGATÓRIO PARA O QT PINTAR O BACKGROUND DA SIDEBAR VIA STYLESHEET
         self.setAttribute(Qt.WA_StyledBackground, True)
         
         self.on_navigate_callback = on_navigate
@@ -76,6 +75,25 @@ class PRTSidebar(QWidget):
             QScrollArea {
                 border: none;
                 background-color: transparent;
+            }
+            QPushButton#navButton {
+                background-color: transparent;
+                color: #A1A1AA;
+                border: none;
+                border-radius: 8px;
+                padding: 8px 12px;
+                text-align: left;
+                font-size: 13px;
+            }
+            QPushButton#navButton:hover {
+                background-color: #27272A;
+                color: #FAFAFA;
+            }
+            QPushButton#navButton:checked,
+            QPushButton#navButton[active="true"] {
+                background-color: #4F46E5 !important;
+                color: #FFFFFF !important;
+                font-weight: bold;
             }
         """)
 
@@ -177,6 +195,7 @@ class PRTSidebar(QWidget):
 
     def _add_menu_item(self, layout: QVBoxLayout, label: str, icon_key: str, route_id: str) -> None:
         btn = QPushButton(f"  {label}")
+        btn.setObjectName("navButton")
         btn.setCheckable(True)
         btn.setCursor(Qt.PointingHandCursor)
         btn.setIconSize(QSize(18, 18))
@@ -198,4 +217,9 @@ class PRTSidebar(QWidget):
     def set_active_route(self, route_id: str) -> None:
         self.active_route = route_id
         for r_id, btn in self.buttons.items():
-            btn.setChecked(r_id == route_id)
+            is_active = (r_id == route_id)
+            btn.setChecked(is_active)
+            btn.setProperty("active", is_active)
+            # Força o re-paint do estilo no Qt
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)

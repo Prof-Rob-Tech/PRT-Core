@@ -154,12 +154,19 @@ class DownloadsPage(QWidget):
         self.table = QTableWidget(0, 5)
         self.table.setHorizontalHeaderLabels(["Nome / Mídia", "Tipo", "Qualidade", "Progresso", "Ação"])
         self.table.verticalHeader().setVisible(False)
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Fixed)
-        self.table.setColumnWidth(3, 260)
-        self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
+
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.Stretch)      # Nome / Mídia (Usa o espaço restante)
+        header.setSectionResizeMode(1, QHeaderView.Interactive)  # Tipo
+        header.setSectionResizeMode(2, QHeaderView.Interactive)  # Qualidade
+        header.setSectionResizeMode(3, QHeaderView.Fixed)        # Progresso
+        header.setSectionResizeMode(4, QHeaderView.Interactive)  # Ação
+
+        # Definindo as novas larguras manuais em pixels
+        self.table.setColumnWidth(1, 110)  # Aumenta largura de 'Tipo'
+        self.table.setColumnWidth(2, 220)  # Aumenta largura de 'Qualidade' para caber 1080p (Full HD...)
+        self.table.setColumnWidth(3, 240)  # Barra de progresso
+        self.table.setColumnWidth(4, 130)  # Botão 'Abrir Pasta'
 
         layout.addWidget(self.table)
 

@@ -4,7 +4,7 @@ PRT Labs - UI / Pages
 Class: ConnectorPage
 Description: Template genérico e adaptável para conectores com suporte a
              seletor de qualidade, Login/Senha, detecção automática do
-             nome do curso, criação de estrutura de pastas e downloads.
+             nome do conteúdo/playlist, criação de pastas e downloads.
 ===========================================================
 """
 
@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -40,8 +41,8 @@ except ImportError:
 
 
 class CourseMapThread(QThread):
-    """Thread em segundo plano para mapeamento com tratamento rigoroso de erros e extração do título do curso."""
-    finished_signal = Signal(object)  # Aceita dict ou list
+    """Thread em segundo plano para mapeamento com tratamento de erros."""
+    finished_signal = Signal(object)
     error_signal = Signal(str)
 
     def __init__(self, course_url, username, password, parent=None):
@@ -60,23 +61,37 @@ class CourseMapThread(QThread):
             result = mapper.map_course(self.course_url)
 
             if not result:
-                self.error_signal.emit("Nenhuma aula foi encontrada. Verifique se o link ou login estão corretos.")
+                self.error_signal.emit("Nenhum conteúdo encontrado. Verifique se o link ou login estão corretos.")
                 return
 
             self.finished_signal.emit(result)
 
         except Exception as e:
             traceback.print_exc()
-            self.error_signal.emit(f"Falha no Playwright: {str(e)}")
+            self.error_signal.emit(f"Falha no mapeamento: {str(e)}")
 
 
 class ConnectorPage(QWidget):
     """Página de Conector Genérica adaptável aos temas do PRT Nexus."""
 
-    def __init__(self, platform_key: str = "conector", connector_name: str = "Conector", parent=None) -> None:
+    def __init__(
+        self, 
+        platform_key: str = "conector", 
+        connector_name: str = "Conector", 
+        content_type: str = None,
+        parent=None
+    ) -> None:
         super().__init__(parent)
         self.platform_key = platform_key.lower()
         self.connector_name = connector_name.title() if connector_name else "Conector"
+        
+        if content_type:
+            self.content_type = content_type
+        elif "youtube" in self.platform_key or "yt" in self.platform_key:
+            self.content_type = "Playlist / Canal"
+        else:
+            self.content_type = "Curso / Playlist"
+
         self.active_worker = None
         self.map_thread = None
         self.lessons_queue = []
@@ -86,76 +101,94 @@ class ConnectorPage(QWidget):
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(15)
+        layout.setSpacing(12)
 
-        # 1. Cabeçalho
-        title_layout = QVBoxLayout()
-        title_layout.setSpacing(4)
-
-        lbl_title = QLabel(f"Conector {self.connector_name}")
-        lbl_title.setStyleSheet("font-size: 20px; font-weight: bold; color: #FFFFFF;")
-
-        lbl_subtitle = QLabel(f"Capture, extraia e gerencie conteúdos diretamente do {self.connector_name}.")
-        lbl_subtitle.setStyleSheet("color: #8E8E93; font-size: 13px;")
-
-        title_layout.addWidget(lbl_title)
-        title_layout.addWidget(lbl_subtitle)
-        layout.addLayout(title_layout)
-
-        # 2. Card de Captura e Configurações
-        card_capture = QFrame()
-        card_capture.setObjectName("cardFrame")
-        card_capture.setStyleSheet("""
-            QFrame#cardFrame {
-                background-color: #18181B;
+        # QSS Global refinado com ajuste específico para QSpinBox
+        self.setStyleSheet("""
+            QFrame.cardFrame {
+                background-color: #121214;
                 border: 1px solid #27272A;
-                border-radius: 8px;
+                border-radius: 10px;
             }
-            QLabel { color: #FAFAFA; }
-            QLineEdit, QComboBox, QSpinBox {
+            QLabel { color: #FAFAFA; font-size: 12px; }
+            QLabel.sectionHeader {
+                color: #818CF8;
+                font-size: 13px;
+                font-weight: bold;
+            }
+            QLineEdit, QComboBox {
                 background-color: #09090B;
                 border: 1px solid #27272A;
                 border-radius: 6px;
                 color: #FFFFFF;
                 padding: 6px 10px;
+                font-size: 12px;
+            }
+            QSpinBox {
+                background-color: #09090B;
+                border: 1px solid #27272A;
+                border-radius: 6px;
+                color: #FFFFFF;
+                padding: 6px 4px;
+                font-size: 12px;
+            }
+            QLineEdit:focus, QComboBox:focus, QSpinBox:focus {
+                border: 1px solid #6366F1;
             }
             QPushButton {
                 background-color: #6366F1;
                 color: #FFFFFF;
                 border: none;
                 border-radius: 6px;
-                padding: 7px 15px;
+                padding: 7px 14px;
                 font-weight: bold;
+                font-size: 12px;
             }
-            QPushButton:hover {
-                background-color: #4F46E5;
-            }
-            QPushButton:disabled {
-                background-color: #3F3F46;
-                color: #71717A;
-            }
-            QPushButton#btnMap {
-                background-color: #10B981;
-            }
-            QPushButton#btnMap:hover {
-                background-color: #059669;
-            }
+            QPushButton:hover { background-color: #4F46E5; }
+            QPushButton:disabled { background-color: #27272A; color: #71717A; }
+            
+            QPushButton#btnMap { background-color: #059669; }
+            QPushButton#btnMap:hover { background-color: #047857; }
+            
+            QPushButton#btnFolder { background-color: #27272A; color: #E4E4E7; }
+            QPushButton#btnFolder:hover { background-color: #3F3F46; }
         """)
 
-        c_layout = QVBoxLayout(card_capture)
-        c_layout.setContentsMargins(15, 15, 15, 15)
-        c_layout.setSpacing(12)
+        # 1. Cabeçalho
+        title_layout = QVBoxLayout()
+        title_layout.setSpacing(2)
 
-        lbl_cap_title = QLabel(f"🔗 Capturar Mídia via URL - {self.connector_name}")
-        lbl_cap_title.setStyleSheet("font-weight: bold; font-size: 14px;")
+        lbl_title = QLabel(f"Conector {self.connector_name}")
+        lbl_title.setStyleSheet("font-size: 20px; font-weight: bold; color: #FFFFFF;")
+
+        lbl_subtitle = QLabel(f"Capture, extraia e gerencie conteúdos diretamente do {self.connector_name}.")
+        lbl_subtitle.setStyleSheet("color: #A1A1AA; font-size: 13px;")
+
+        title_layout.addWidget(lbl_title)
+        title_layout.addWidget(lbl_subtitle)
+        layout.addLayout(title_layout)
+
+        # 2. Card 1: Captura por URL + Botões Principais
+        card_capture = QFrame()
+        card_capture.setProperty("class", "cardFrame")
+        c_layout = QVBoxLayout(card_capture)
+        c_layout.setContentsMargins(16, 14, 16, 14)
+        c_layout.setSpacing(10)
+
+        lbl_cap_title = QLabel(f"🔗 Captura de Mídia - {self.connector_name}")
+        lbl_cap_title.setStyleSheet("font-weight: bold; font-size: 14px; color: #FFFFFF;")
         c_layout.addWidget(lbl_cap_title)
 
-        # Linha URL + Formato/Qualidade + Botões
-        input_layout = QHBoxLayout()
         self.txt_url = QLineEdit()
-        self.txt_url.setPlaceholderText(f"Cole o link da aula ou curso do {self.connector_name} aqui (ex: https://...)")
+        self.txt_url.setPlaceholderText(f"Cole o link do vídeo, áudio ou {self.content_type.lower()} aqui...")
+        c_layout.addWidget(self.txt_url)
 
-        # Seletor de Qualidade
+        action_layout = QHBoxLayout()
+        action_layout.setSpacing(8)
+
+        lbl_format = QLabel("Qualidade:")
+        lbl_format.setStyleSheet("color: #A1A1AA;")
+
         self.combo_format = QComboBox()
         self.combo_format.addItems([
             "📹 Vídeo - Max Qualidade (MP4)",
@@ -165,93 +198,108 @@ class ConnectorPage(QWidget):
             "🎵 Apenas Áudio (MP3)"
         ])
 
-        self.btn_download = QPushButton("⬇️ Baixar Mídia")
+        self.btn_download = QPushButton("⬇️ Baixar Mídia Avulsa")
         self.btn_download.setCursor(Qt.PointingHandCursor)
         self.btn_download.clicked.connect(self._start_download)
 
-        self.btn_map_course = QPushButton("🗺️ Mapear e Baixar Curso")
+        self.btn_map_course = QPushButton(f"🗺️ Mapear e Baixar {self.content_type}")
         self.btn_map_course.setObjectName("btnMap")
         self.btn_map_course.setCursor(Qt.PointingHandCursor)
         self.btn_map_course.clicked.connect(self._start_course_mapping)
 
-        input_layout.addWidget(self.txt_url, stretch=3)
-        input_layout.addWidget(self.combo_format, stretch=1)
-        input_layout.addWidget(self.btn_download)
-        input_layout.addWidget(self.btn_map_course)
-        c_layout.addLayout(input_layout)
+        action_layout.addWidget(lbl_format)
+        action_layout.addWidget(self.combo_format, stretch=1)
+        action_layout.addWidget(self.btn_download)
+        action_layout.addWidget(self.btn_map_course)
+        c_layout.addLayout(action_layout)
 
-        # Autenticação
-        auth_group = QVBoxLayout()
-        auth_lbl = QLabel(f"🔐 Autenticação / Conta {self.connector_name} (Necessário para áreas pagas):")
-        auth_lbl.setStyleSheet("color: #A1A1AA; font-size: 12px; font-weight: bold; margin-top: 4px;")
-        auth_group.addWidget(auth_lbl)
+        layout.addWidget(card_capture)
 
-        row_auth = QHBoxLayout()
+        # 3. Card 2: Painel de Configurações
+        card_config = QFrame()
+        card_config.setProperty("class", "cardFrame")
+        grid_config = QGridLayout(card_config)
+        grid_config.setContentsMargins(16, 14, 16, 14)
+        grid_config.setHorizontalSpacing(16)
+        grid_config.setVerticalSpacing(10)
+        
+        grid_config.setColumnStretch(0, 1)
+        grid_config.setColumnStretch(1, 1)
+
+        # COLUNA DA ESQUERDA: Autenticação + Pasta de Saída
+        lbl_auth_sec = QLabel("🔐 Autenticação (Áreas Pagas / Privadas)")
+        lbl_auth_sec.setProperty("class", "sectionHeader")
+        grid_config.addWidget(lbl_auth_sec, 0, 0)
+
         self.txt_user = QLineEdit()
-        self.txt_user.setPlaceholderText("E-mail / Usuário de Acesso")
+        self.txt_user.setPlaceholderText("E-mail / Usuário")
+        grid_config.addWidget(self.txt_user, 1, 0)
 
         self.txt_pass = QLineEdit()
         self.txt_pass.setEchoMode(QLineEdit.Password)
-        self.txt_pass.setPlaceholderText("Senha de Acesso")
+        self.txt_pass.setPlaceholderText("Senha")
+        grid_config.addWidget(self.txt_pass, 2, 0)
 
-        row_auth.addWidget(self.txt_user)
-        row_auth.addWidget(self.txt_pass)
-        auth_group.addLayout(row_auth)
-        c_layout.addLayout(auth_group)
+        lbl_folder_sec = QLabel("📁 Pasta de Destino")
+        lbl_folder_sec.setProperty("class", "sectionHeader")
+        grid_config.addWidget(lbl_folder_sec, 3, 0)
 
-        # Organização de Pastas do Curso
-        struct_group = QVBoxLayout()
-        struct_lbl = QLabel("📁 Organização de Pastas do Curso (Detectado automaticamente ou personalize):")
-        struct_lbl.setStyleSheet("color: #A1A1AA; font-size: 12px; font-weight: bold; margin-top: 4px;")
-        struct_group.addWidget(struct_lbl)
-
-        # Nome do Curso
-        self.txt_course = QLineEdit()
-        self.txt_course.setPlaceholderText("Nome do Curso (Será preenchido automaticamente ao mapear)")
-        struct_group.addWidget(self.txt_course)
-
-        # Módulo e Aula em paralelo
-        row_mod_les = QHBoxLayout()
-
-        self.spin_module_idx = QSpinBox()
-        self.spin_module_idx.setRange(1, 999)
-        self.spin_module_idx.setPrefix("Mod ")
-        self.spin_module_idx.setValue(1)
-
-        self.txt_module_name = QLineEdit()
-        self.txt_module_name.setPlaceholderText("Nome do Módulo (ex: Apresentação conteúdo Face ID 2.0)")
-
-        self.spin_lesson_idx = QSpinBox()
-        self.spin_lesson_idx.setRange(1, 9999)
-        self.spin_lesson_idx.setPrefix("Aula ")
-        self.spin_lesson_idx.setValue(1)
-
-        self.txt_lesson_name = QLineEdit()
-        self.txt_lesson_name.setPlaceholderText("Nome da Aula (ex: Apresentação - Curso Face ID)")
-
-        row_mod_les.addWidget(self.spin_module_idx, stretch=1)
-        row_mod_les.addWidget(self.txt_module_name, stretch=3)
-        row_mod_les.addWidget(self.spin_lesson_idx, stretch=1)
-        row_mod_les.addWidget(self.txt_lesson_name, stretch=3)
-
-        struct_group.addLayout(row_mod_les)
-        c_layout.addLayout(struct_group)
-
-        # Pasta de Saída
-        folder_layout = QHBoxLayout()
+        folder_row = QHBoxLayout()
+        folder_row.setSpacing(6)
         default_folder = os.path.join(os.path.expanduser("~"), "Downloads", "PRT_Nexus")
         self.txt_folder = QLineEdit(default_folder)
         
-        btn_folder = QPushButton("📁 Alterar Pasta")
+        btn_folder = QPushButton("Alterar")
+        btn_folder.setObjectName("btnFolder")
         btn_folder.setCursor(Qt.PointingHandCursor)
         btn_folder.clicked.connect(self._select_folder)
 
-        folder_layout.addWidget(self.txt_folder, stretch=4)
-        folder_layout.addWidget(btn_folder, stretch=1)
-        c_layout.addLayout(folder_layout)
+        folder_row.addWidget(self.txt_folder, stretch=1)
+        folder_row.addWidget(btn_folder)
+        grid_config.addLayout(folder_row, 4, 0)
+
+        # COLUNA DA DIREITA: Organização do Conteúdo
+        lbl_struct_sec = QLabel(f"📚 Organização de Pastas ({self.content_type})")
+        lbl_struct_sec.setProperty("class", "sectionHeader")
+        grid_config.addWidget(lbl_struct_sec, 0, 1)
+
+        self.txt_course = QLineEdit()
+        self.txt_course.setPlaceholderText(f"Nome do Conteúdo / {self.content_type}")
+        grid_config.addWidget(self.txt_course, 1, 1)
+
+        # Módulo / Seção (Largura ajustada para 95px)
+        mod_row = QHBoxLayout()
+        mod_row.setSpacing(6)
+        self.spin_module_idx = QSpinBox()
+        self.spin_module_idx.setRange(1, 999)
+        self.spin_module_idx.setPrefix("Mod ")
+        self.spin_module_idx.setFixedWidth(95)
+
+        self.txt_module_name = QLineEdit()
+        self.txt_module_name.setPlaceholderText("Nome do Módulo / Seção")
+        mod_row.addWidget(self.spin_module_idx)
+        mod_row.addWidget(self.txt_module_name, stretch=1)
+        grid_config.addLayout(mod_row, 2, 1)
+
+        # Item / Vídeo (Largura ajustada para 95px)
+        les_row = QHBoxLayout()
+        les_row.setSpacing(6)
+        self.spin_lesson_idx = QSpinBox()
+        self.spin_lesson_idx.setRange(1, 9999)
+        self.spin_lesson_idx.setPrefix("Item ")
+        self.spin_lesson_idx.setFixedWidth(95)
+
+        self.txt_lesson_name = QLineEdit()
+        item_label = "Vídeo" if "youtube" in self.platform_key else "Aula / Item"
+        self.txt_lesson_name.setPlaceholderText(f"Nome do {item_label}")
+        les_row.addWidget(self.spin_lesson_idx)
+        les_row.addWidget(self.txt_lesson_name, stretch=1)
+        grid_config.addLayout(les_row, 3, 1)
 
         # Barra e Status de Progresso
-        progress_layout = QVBoxLayout()
+        progress_box = QVBoxLayout()
+        progress_box.setSpacing(4)
+
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
@@ -263,7 +311,8 @@ class ConnectorPage(QWidget):
                 border-radius: 6px;
                 text-align: center;
                 color: #FFFFFF;
-                height: 20px;
+                height: 18px;
+                font-size: 11px;
             }
             QProgressBar::chunk {
                 background-color: #10B981;
@@ -272,28 +321,23 @@ class ConnectorPage(QWidget):
         """)
 
         self.lbl_status = QLabel("Aguardando link de download...")
-        self.lbl_status.setStyleSheet("color: #A1A1AA; font-size: 12px;")
+        self.lbl_status.setStyleSheet("color: #A1A1AA; font-size: 11px;")
 
-        progress_layout.addWidget(self.progress_bar)
-        progress_layout.addWidget(self.lbl_status)
-        c_layout.addLayout(progress_layout)
+        progress_box.addWidget(self.progress_bar)
+        progress_box.addWidget(self.lbl_status)
+        
+        grid_config.addLayout(progress_box, 4, 1)
 
-        layout.addWidget(card_capture)
+        layout.addWidget(card_config)
 
-        # 3. Tabela de Mídias Concluídas (BLOCO ÚNICO SEM DUPLICAÇÕES)
+        # 4. Card 3: Tabela de Mídias Concluídas
         card_table = QFrame()
-        card_table.setObjectName("cardFrame")
+        card_table.setProperty("class", "cardFrame")
         card_table.setStyleSheet("""
-            QFrame#cardFrame {
-                background-color: #18181B;
-                border: 1px solid #27272A;
-                border-radius: 8px;
-            }
-            QLabel { color: #FAFAFA; }
             QTableWidget {
                 background-color: #09090B;
                 border: 1px solid #27272A;
-                gridline-color: #27272A;
+                gridline-color: #18181B;
                 color: #FFFFFF;
                 border-radius: 6px;
             }
@@ -306,10 +350,10 @@ class ConnectorPage(QWidget):
             }
         """)
         t_layout = QVBoxLayout(card_table)
-        t_layout.setContentsMargins(15, 15, 15, 15)
+        t_layout.setContentsMargins(16, 14, 16, 14)
 
         lbl_tbl_title = QLabel(f"📦 Mídias Concluídas do {self.connector_name}")
-        lbl_tbl_title.setStyleSheet("font-weight: bold; font-size: 13px; margin-bottom: 8px;")
+        lbl_tbl_title.setStyleSheet("font-weight: bold; font-size: 13px; color: #FFFFFF; margin-bottom: 4px;")
         t_layout.addWidget(lbl_tbl_title)
 
         self.table = QTableWidget(0, 4)
@@ -320,20 +364,19 @@ class ConnectorPage(QWidget):
         self.table.setColumnWidth(0, 40)
         
         header.setSectionResizeMode(1, QHeaderView.Interactive)
-        self.table.setColumnWidth(1, 260)
+        self.table.setColumnWidth(1, 280)
         
         header.setSectionResizeMode(2, QHeaderView.Stretch)
         
         header.setSectionResizeMode(3, QHeaderView.Fixed)
         self.table.setColumnWidth(3, 100)
 
-        self.table.setMinimumHeight(220)
+        self.table.setMinimumHeight(180)
 
         t_layout.addWidget(self.table)
         layout.addWidget(card_table, 1)
 
     def _create_worker(self, **kwargs):
-        """Instancia PRTDownloadWorker repassando apenas os parâmetros suportados."""
         if not PRTDownloadWorker:
             return None
 
@@ -432,7 +475,7 @@ class ConnectorPage(QWidget):
     def _start_course_mapping(self) -> None:
         url = self.txt_url.text().strip()
         if not url:
-            self.lbl_status.setText("⚠️ Cole o link principal do curso para mapear.")
+            self.lbl_status.setText(f"⚠️ Cole o link principal do(a) {self.content_type.lower()} para mapear.")
             return
 
         user = self.txt_user.text().strip() or None
@@ -441,7 +484,7 @@ class ConnectorPage(QWidget):
         self.btn_download.setEnabled(False)
         self.btn_map_course.setEnabled(False)
         self.progress_bar.setValue(0)
-        self.lbl_status.setText("🗺️ Mapeando estrutura de aulas do curso com Playwright... Aguarde!")
+        self.lbl_status.setText(f"🗺️ Mapeando estrutura de itens com Playwright... Aguarde!")
 
         self.map_thread = CourseMapThread(course_url=url, username=user, password=pwd, parent=self)
         self.map_thread.finished_signal.connect(self._on_mapping_finished)
@@ -467,43 +510,43 @@ class ConnectorPage(QWidget):
         if not lessons:
             self.btn_download.setEnabled(True)
             self.btn_map_course.setEnabled(True)
-            self.lbl_status.setText("⚠️ Nenhuma aula foi encontrada na página digitada.")
+            self.lbl_status.setText("⚠️ Nenhum item foi encontrado no link fornecido.")
             return
 
         self.lessons_queue = lessons
         self.current_lesson_index = 0
-        self.lbl_status.setText(f"✅ Mapeamento concluído! Total de {len(lessons)} aulas encontradas. Iniciando downloads...")
+        self.lbl_status.setText(f"✅ Mapeamento concluído! Total de {len(lessons)} itens encontrados. Iniciando downloads...")
         self._download_next_in_queue()
 
     @Slot(str)
     def _on_mapping_error(self, err_msg: str) -> None:
         self.btn_download.setEnabled(True)
         self.btn_map_course.setEnabled(True)
-        self.lbl_status.setText(f"❌ Erro ao mapear curso: {err_msg}")
+        self.lbl_status.setText(f"❌ Erro ao mapear: {err_msg}")
 
     def _download_next_in_queue(self) -> None:
         if self.current_lesson_index >= len(self.lessons_queue):
             self.btn_download.setEnabled(True)
             self.btn_map_course.setEnabled(True)
             self.progress_bar.setValue(100)
-            self.lbl_status.setText(f"🎉 Todos os downloads do curso foram concluídos ({len(self.lessons_queue)} aulas)!")
+            self.lbl_status.setText(f"🎉 Todos os downloads foram concluídos ({len(self.lessons_queue)} itens)!")
             return
 
         media_type, quality = self._get_selected_quality_params()
         lesson = self.lessons_queue[self.current_lesson_index]
-        lesson_title = lesson.get('title', '') if isinstance(lesson, dict) else f"Aula {self.current_lesson_index + 1}"
-        self.lbl_status.setText(f"⏳ Baixando Aula {self.current_lesson_index + 1}/{len(self.lessons_queue)}: {lesson_title}")
+        lesson_title = lesson.get('title', '') if isinstance(lesson, dict) else f"Item {self.current_lesson_index + 1}"
+        self.lbl_status.setText(f"⏳ Baixando {self.current_lesson_index + 1}/{len(self.lessons_queue)}: {lesson_title}")
 
         user = self.txt_user.text().strip() or None
         pwd = self.txt_pass.text().strip() or None
         output_dir = self.txt_folder.text().strip()
         
         detected_course = lesson.get("course_title") or lesson.get("course") if isinstance(lesson, dict) else None
-        if detected_course and detected_course != "Curso Mapeado":
+        if detected_course and detected_course not in ["Curso Mapeado", "Conteúdo Mapeado"]:
             course = detected_course
             self.txt_course.setText(course)
         else:
-            course = self.txt_course.text().strip() or "Curso Mapeado"
+            course = self.txt_course.text().strip() or "Mídia Mapeada"
 
         mod_name = lesson.get("module") or lesson.get("module_name") or lesson.get("module_title") if isinstance(lesson, dict) else None
         mod_idx = lesson.get("module_index") if isinstance(lesson, dict) else None
@@ -533,7 +576,7 @@ class ConnectorPage(QWidget):
         )
 
         if not self.active_worker:
-            self.lbl_status.setText(f"⚠️ Erro ao criar worker para aula {self.current_lesson_index + 1}. Pulando...")
+            self.lbl_status.setText(f"⚠️ Erro ao criar worker para o item {self.current_lesson_index + 1}. Pulando...")
             self.current_lesson_index += 1
             self._download_next_in_queue()
             return
@@ -559,12 +602,7 @@ class ConnectorPage(QWidget):
         if hasattr(self, 'lbl_status'):
             self.lbl_status.setText(f"{message}")
 
-    # ==========================================================
-    # GERENCIAMENTO DE LINHAS DA TABELA E DOWNLOADS (ULTRA SEGURO)
-    # ==========================================================
-
     def _add_to_table(self, title: str, filepath: str, status: str) -> None:
-        """Adiciona uma linha na tabela e força a renderização visual imediata."""
         try:
             if not hasattr(self, 'table') or self.table is None:
                 return
@@ -601,7 +639,6 @@ class ConnectorPage(QWidget):
 
     @Slot(str)
     def _on_finished(self, filepath: str = "") -> None:
-        """Lida com a conclusão de um download único (avulso)."""
         self.lbl_status.setText("✅ Download concluído com sucesso!")
         self.btn_download.setEnabled(True)
         self.btn_map_course.setEnabled(True)
@@ -612,14 +649,12 @@ class ConnectorPage(QWidget):
 
     @Slot(str)
     def _on_error(self, err_msg: str = "") -> None:
-        """Lida com erro em um download único (avulso)."""
         self.lbl_status.setText(f"❌ Erro no download: {err_msg}")
         self.btn_download.setEnabled(True)
         self.btn_map_course.setEnabled(True)
 
     @Slot(str)
     def _on_batch_finished(self, filepath: str = "") -> None:
-        """Lida com a conclusão de uma aula e puxa a próxima da fila."""
         try:
             title = ""
             if hasattr(self, 'lessons_queue') and self.lessons_queue and 0 <= self.current_lesson_index < len(self.lessons_queue):
@@ -630,29 +665,28 @@ class ConnectorPage(QWidget):
             if not title and filepath:
                 title = os.path.basename(filepath)
             if not title:
-                title = f"Aula {self.current_lesson_index + 1:02d}"
+                title = f"Item {self.current_lesson_index + 1:02d}"
 
             self._add_to_table(title, filepath, "Concluído")
             print(f"✅ [Download] Arquivo salvo em: {filepath}")
         except Exception as e:
             print(f"⚠️ Erro ao atualizar tabela: {e}")
-            self._add_to_table(f"Aula {self.current_lesson_index + 1:02d}", str(filepath), "Concluído")
+            self._add_to_table(f"Item {self.current_lesson_index + 1:02d}", str(filepath), "Concluído")
         finally:
             self.current_lesson_index += 1
             self._download_next_in_queue()
 
     @Slot(str)
     def _on_batch_error(self, err_msg: str = "") -> None:
-        """Lida com erro em uma aula da fila e pula para a próxima."""
         try:
-            title = f"Aula {self.current_lesson_index + 1:02d}"
+            title = f"Item {self.current_lesson_index + 1:02d}"
             if hasattr(self, 'lessons_queue') and self.lessons_queue and 0 <= self.current_lesson_index < len(self.lessons_queue):
                 lesson = self.lessons_queue[self.current_lesson_index]
                 if isinstance(lesson, dict):
                     title = lesson.get("title") or title
 
             self._add_to_table(title, "N/A", "Falha")
-            print(f"❌ [Download] Erro na aula {self.current_lesson_index + 1}: {err_msg}")
+            print(f"❌ [Download] Erro no item {self.current_lesson_index + 1}: {err_msg}")
         except Exception as e:
             print(f"⚠️ Erro ao registrar falha na tabela: {e}")
         finally:

@@ -2,7 +2,7 @@
 ===========================================================
 PRT Labs - UI / Dashboard Page
 Class: DashboardPage
-Description: Tela inicial (Início) adaptativa a temas do PRT Nexus
+Description: Tela inicial (Início) 100% adaptativa a qualquer tema (Light/Dark)
 ===========================================================
 """
 
@@ -14,35 +14,57 @@ from PySide6.QtWidgets import (
 
 
 class StatCard(QFrame):
-    """Card de estatísticas do Dashboard com indicador colorido."""
+    """Card de estatísticas com indicador lateral interno adaptável a qualquer tema."""
 
     def __init__(self, title: str, value: str, accent_color: str = "#2563EB", parent=None):
         super().__init__(parent)
         self.setObjectName("statCard")
-        self.setStyleSheet(f"""
-            QFrame#statCard {{
-                background-color: rgba(128, 128, 128, 0.05);
+        self.setFixedHeight(80)
+        self.setStyleSheet("""
+            QFrame#statCard {
+                background-color: rgba(128, 128, 128, 0.06);
                 border: 1px solid rgba(128, 128, 128, 0.18);
-                border-left: 4px solid {accent_color};
                 border-radius: 8px;
+            }
+        """)
+
+        main_layout = QHBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 16, 0)
+        main_layout.setSpacing(14)
+
+        # Faixa colorida lateral embutida com cantos perfeitamente alinhados
+        accent_bar = QFrame()
+        accent_bar.setFixedWidth(8)
+        accent_bar.setStyleSheet(f"""
+            QFrame {{
+                background-color: {accent_color};
+                border-top-left-radius: 7px;
+                border-bottom-left-radius: 7px;
+                border-top-right-radius: 0px;
+                border-bottom-right-radius: 0px;
+                border: none;
             }}
         """)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(4)
+
+        content_layout = QVBoxLayout()
+        content_layout.setContentsMargins(0, 14, 0, 14)
+        content_layout.setSpacing(4)
 
         lbl_title = QLabel(title.upper())
-        lbl_title.setStyleSheet("font-size: 10px; font-weight: bold; opacity: 0.6; border: none;")
+        lbl_title.setStyleSheet("font-size: 11px; font-weight: 800; opacity: 0.65; border: none; letter-spacing: 0.5px;")
 
         lbl_value = QLabel(value)
-        lbl_value.setStyleSheet("font-size: 15px; font-weight: bold; border: none;")
+        lbl_value.setStyleSheet("font-size: 16px; font-weight: bold; border: none;")
 
-        layout.addWidget(lbl_title)
-        layout.addWidget(lbl_value)
+        content_layout.addWidget(lbl_title)
+        content_layout.addWidget(lbl_value)
+
+        main_layout.addWidget(accent_bar)
+        main_layout.addLayout(content_layout, 1)
 
 
 class QuickCard(QFrame):
-    """Card de atalho rápido para conectores e módulos."""
+    """Card de atalho rápido adaptável a qualquer tema."""
 
     def __init__(self, title: str, desc: str, route_id: str, on_navigate=None, parent=None):
         super().__init__(parent)
@@ -51,7 +73,7 @@ class QuickCard(QFrame):
         self.setObjectName("quickCard")
         self.setStyleSheet("""
             QFrame#quickCard {
-                background-color: rgba(128, 128, 128, 0.05);
+                background-color: rgba(128, 128, 128, 0.06);
                 border: 1px solid rgba(128, 128, 128, 0.18);
                 border-radius: 8px;
             }
@@ -61,7 +83,7 @@ class QuickCard(QFrame):
         """)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setContentsMargins(14, 14, 14, 14)
         layout.setSpacing(8)
 
         lbl_title = QLabel(title)
@@ -72,7 +94,7 @@ class QuickCard(QFrame):
         lbl_desc.setWordWrap(True)
 
         btn_action = QPushButton("Acessar Módulo →")
-        btn_action.setFixedHeight(30)
+        btn_action.setFixedHeight(32)
         btn_action.setCursor(Qt.PointingHandCursor)
         btn_action.setStyleSheet("""
             QPushButton {
@@ -130,7 +152,7 @@ class DashboardPage(QWidget):
         header_layout.addWidget(subtitle)
         main_layout.addLayout(header_layout)
 
-        # Scroll Area para o conteúdo
+        # Scroll Area
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
@@ -145,7 +167,7 @@ class DashboardPage(QWidget):
         stats_layout = QHBoxLayout()
         stats_layout.setSpacing(12)
 
-        stats_layout.addWidget(StatCard("Conectores", "8 Módulos Prontos", "#00E676"))
+        stats_layout.addWidget(StatCard("Conectores", "8 Módulos Prontos", "#10B981"))
         stats_layout.addWidget(StatCard("Downloads Ativos", "0 em andamento", "#3B82F6"))
         stats_layout.addWidget(StatCard("Mídias Salvas", "0 arquivos", "#F59E0B"))
         stats_layout.addWidget(StatCard("Sistema Core", "100% Operacional", "#06B6D4"))
@@ -154,7 +176,7 @@ class DashboardPage(QWidget):
 
         # 3. Seção Atalhos Rápido
         sec_title = QLabel("Atalhos Rápido de Conectores")
-        sec_title.setStyleSheet("font-size: 13px; font-weight: bold; opacity: 0.75; margin-top: 6px; border: none;")
+        sec_title.setStyleSheet("font-size: 13px; font-weight: 800; opacity: 0.8; margin-top: 6px; border: none; letter-spacing: 0.5px;")
         content_layout.addWidget(sec_title)
 
         # Grid de Atalhos

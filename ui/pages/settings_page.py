@@ -1,278 +1,134 @@
 """
 ===========================================================
-PRT Labs
-
-Project....: PRT Core
-Module.....: UI / Pages
-Class......: SettingsPage
-
-Description:
-    Settings Page for PRT NEXUS with direct theme application
-    and system preferences management.
-
-Developer..: Prof Rob Tech
+PRT Labs - UI / Settings Page
+Class: SettingsPage
+Description: Tela de Configurações adaptativa a temas do PRT Nexus
 ===========================================================
 """
 
-from PySide6.QtCore import QSettings, Qt, Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QApplication,
-    QCheckBox,
-    QFrame,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QVBoxLayout,
-    QWidget,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+    QPushButton, QFrame, QCheckBox, QScrollArea
 )
 
-THEMES = {
-    "dark": """
-        QMainWindow, QWidget#centralWidget, QStackedWidget {
-            background-color: #09090B;
-            color: #F4F4F5;
-            font-family: 'Segoe UI', sans-serif;
-        }
-        PRTSidebar, QFrame#sidebar {
-            background-color: #121215;
-            border-right: 1px solid #27272A;
-        }
-        QWidget#browserNavBar {
-            background-color: #121215;
-            border-bottom: 1px solid #27272A;
-        }
-        QFrame#cardFrame {
-            background-color: #121215;
-            border: 1px solid #27272A;
-            border-radius: 8px;
-        }
-        QLineEdit {
-            background-color: #18181B;
-            color: #FFFFFF;
-            border: 1px solid #27272A;
-            border-radius: 6px;
-            padding: 8px 12px;
-        }
-        QLineEdit:focus { border: 1px solid #6366F1; }
-        QPushButton {
-            background-color: #27272A;
-            color: #FFFFFF;
-            border: 1px solid #3F3F46;
-            border-radius: 6px;
-            padding: 8px 14px;
-        }
-        QPushButton:hover { background-color: #3F3F46; }
-        QLabel { color: #F4F4F5; }
-    """,
-    "light": """
-        QMainWindow, QWidget#centralWidget, QStackedWidget {
-            background-color: #F8FAFC;
-            color: #0F172A;
-            font-family: 'Segoe UI', sans-serif;
-        }
-        PRTSidebar, QFrame#sidebar {
-            background-color: #FFFFFF;
-            border-right: 1px solid #E2E8F0;
-        }
-        QWidget#browserNavBar {
-            background-color: #FFFFFF;
-            border-bottom: 1px solid #E2E8F0;
-        }
-        QFrame#cardFrame {
-            background-color: #FFFFFF;
-            border: 1px solid #E2E8F0;
-            border-radius: 8px;
-        }
-        QLineEdit {
-            background-color: #FFFFFF;
-            color: #0F172A;
-            border: 1px solid #CBD5E1;
-            border-radius: 6px;
-            padding: 8px 12px;
-        }
-        QLineEdit:focus { border: 1px solid #6366F1; }
-        QPushButton {
-            background-color: #E2E8F0;
-            color: #0F172A;
-            border: 1px solid #CBD5E1;
-            border-radius: 6px;
-            padding: 8px 14px;
-        }
-        QPushButton:hover { background-color: #CBD5E1; }
-        QLabel { color: #0F172A; }
-    """,
-    "cyber": """
-        QMainWindow, QWidget#centralWidget, QStackedWidget {
-            background-color: #0B0518;
-            color: #00F0FF;
-            font-family: 'Segoe UI', sans-serif;
-        }
-        PRTSidebar, QFrame#sidebar {
-            background-color: #150A2A;
-            border-right: 1px solid #FF007F;
-        }
-        QWidget#browserNavBar {
-            background-color: #150A2A;
-            border-bottom: 1px solid #FF007F;
-        }
-        QFrame#cardFrame {
-            background-color: #150A2A;
-            border: 1px solid #FF007F;
-            border-radius: 8px;
-        }
-        QLineEdit {
-            background-color: #1A0D36;
-            color: #00F0FF;
-            border: 1px solid #FF007F;
-            border-radius: 6px;
-            padding: 8px 12px;
-        }
-        QLineEdit:focus { border: 1px solid #00F0FF; }
-        QPushButton {
-            background-color: #24114A;
-            color: #00F0FF;
-            border: 1px solid #00F0FF;
-            border-radius: 6px;
-            padding: 8px 14px;
-        }
-        QPushButton:hover { background-color: #381A72; }
-        QLabel { color: #00F0FF; }
-    """,
-}
+
+class BaseCard(QFrame):
+    """Card container adaptável aos temas Claro e Escuro."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("settingsCard")
+        self.setStyleSheet("""
+            QFrame#settingsCard {
+                background-color: rgba(128, 128, 128, 0.05);
+                border: 1px solid rgba(128, 128, 128, 0.18);
+                border-radius: 8px;
+                padding: 12px;
+            }
+        """)
 
 
 class SettingsPage(QWidget):
-    """Página de Configurações do PRT NEXUS."""
+    """Página de Configurações do Sistema adaptativa aos temas do PRT Nexus."""
 
     theme_changed = Signal(str)
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent=None, *args, **kwargs):
         super().__init__(parent)
-        self.settings = QSettings("PRTLabs", "PRTNexus")
-        self.theme_buttons = {}
-        self._build_ui()
+        self.setObjectName("settingsPage")
+        self._setup_ui()
 
-    def _build_ui(self) -> None:
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(15)
+    def _setup_ui(self):
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(20, 16, 20, 16)
+        main_layout.setSpacing(16)
 
-        # Título da Página
-        lbl_title = QLabel("⚙️ Configurações do Sistema")
-        lbl_title.setStyleSheet("font-size: 18px; font-weight: bold;")
-        layout.addWidget(lbl_title)
+        # 1. Cabeçalho
+        header_layout = QVBoxLayout()
+        header_layout.setSpacing(4)
 
-        # CARD DE SELEÇÃO DE TEMA
-        theme_card = QFrame()
-        theme_card.setObjectName("cardFrame")
-        theme_card_layout = QVBoxLayout(theme_card)
-        theme_card_layout.setContentsMargins(15, 15, 15, 15)
-        theme_card_layout.setSpacing(12)
+        title = QLabel("⚙️ Configurações do Sistema")
+        title.setStyleSheet("font-size: 18px; font-weight: bold; border: none;")
 
-        lbl_theme_title = QLabel("Aparência e Personalização")
-        lbl_theme_title.setStyleSheet(
-            "color: #8E8E93; font-size: 12px; font-weight: bold; text-transform: uppercase;"
-        )
-        theme_card_layout.addWidget(lbl_theme_title)
+        header_layout.addWidget(title)
+        main_layout.addLayout(header_layout)
 
-        cards_layout = QHBoxLayout()
-        cards_layout.setSpacing(12)
+        # Scroll Area
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
 
-        themes_info = [
-            ("dark", "🌙 Tema Escuro\n(Slate Dark)"),
-            ("light", "☀️ Tema Claro\n(Clean White)"),
-            ("cyber", "⚡ Nexus Cyber\n(Neon Vivid)"),
+        content_widget = QWidget()
+        content_widget.setStyleSheet("background: transparent;")
+        content_layout = QVBoxLayout(content_widget)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(16)
+
+        # 2. Seção Aparência
+        sec_appearance = QLabel("APARÊNCIA E PERSONALIZAÇÃO")
+        sec_appearance.setStyleSheet("font-size: 11px; font-weight: bold; opacity: 0.85; border: none;")
+        content_layout.addWidget(sec_appearance)
+
+        card_theme = BaseCard()
+        theme_layout = QHBoxLayout(card_theme)
+        theme_layout.setSpacing(12)
+
+        themes = [
+            ("🍌 Tema Escuro\n(Slate Dark)", "dark"),
+            ("☀️ Tema Claro\n(Clean White)", "light"),
+            ("⚡ Nexus Cyber\n(Neon Vivid)", "cyber"),
         ]
 
-        saved_theme = self.settings.value("theme", "dark")
-
-        for theme_id, label_text in themes_info:
-            btn = QPushButton(label_text)
+        self.theme_btns = []
+        for btn_text, theme_id in themes:
+            btn = QPushButton(btn_text)
+            btn.setFixedHeight(50)
             btn.setCursor(Qt.PointingHandCursor)
-            btn.setCheckable(True)
-            btn.setFixedHeight(65)
             btn.setStyleSheet("""
                 QPushButton {
-                    border: 2px solid #3F3F46;
+                    background-color: rgba(128, 128, 128, 0.08);
+                    border: 1px solid rgba(128, 128, 128, 0.25);
                     border-radius: 8px;
-                    padding: 8px;
-                    font-weight: bold;
+                    font-weight: 600;
                     font-size: 12px;
-                    text-align: center;
                 }
                 QPushButton:hover {
-                    border-color: #6366F1;
-                }
-                QPushButton:checked {
-                    border-color: #6366F1;
-                    background-color: rgba(99, 102, 241, 0.2);
+                    border: 1px solid #2563EB;
                 }
             """)
-            btn.clicked.connect(lambda _, t=theme_id: self._select_theme(t))
-            cards_layout.addWidget(btn)
-            self.theme_buttons[theme_id] = btn
+            theme_layout.addWidget(btn, 1)
+            self.theme_btns.append((btn, theme_id))
 
-        theme_card_layout.addLayout(cards_layout)
-        layout.addWidget(theme_card)
+        content_layout.addWidget(card_theme)
 
-        # CARD DE COMPORTAMENTO DO APLICATIVO
-        card = QFrame()
-        card.setObjectName("cardFrame")
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(15, 15, 15, 15)
-        card_layout.setSpacing(12)
+        # 3. Seção Comportamento
+        sec_behavior = QLabel("COMPORTAMENTO DO APLICATIVO")
+        sec_behavior.setStyleSheet("font-size: 11px; font-weight: bold; opacity: 0.85; border: none;")
+        content_layout.addWidget(sec_behavior)
 
-        lbl_card_title = QLabel("Comportamento do Aplicativo")
-        lbl_card_title.setStyleSheet(
-            "color: #8E8E93; font-size: 12px; font-weight: bold; text-transform: uppercase;"
-        )
-        card_layout.addWidget(lbl_card_title)
+        card_behavior = BaseCard()
+        beh_layout = QVBoxLayout(card_behavior)
+        beh_layout.setSpacing(10)
 
-        self.chk_minimize_to_tray = QCheckBox(
-            "Manter aplicativo rodando na bandeja do sistema ao fechar (X)"
-        )
-        self.chk_minimize_to_tray.setCursor(Qt.PointingHandCursor)
-        self.chk_minimize_to_tray.setStyleSheet("font-size: 13px; spacing: 8px;")
+        chk_style = "QCheckBox { font-size: 12px; font-weight: 500; border: none; gridline-color: transparent; }"
 
-        # --- CORREÇÃO DA LEITURA SEGURA E CHAVE UNIFICADA ---
-        val = self.settings.value("minimize_to_tray", True)
-        if isinstance(val, str):
-            minimize_to_tray = val.lower() in ("true", "1")
-        else:
-            minimize_to_tray = bool(val)
+        chk_startup = QCheckBox("Iniciar junto com o Windows")
+        chk_startup.setStyleSheet(chk_style)
 
-        self.chk_minimize_to_tray.setChecked(minimize_to_tray)
-        self.chk_minimize_to_tray.toggled.connect(self._on_close_to_tray_toggled)
+        chk_tray = QCheckBox("Minimizar para a bandeja ao fechar (Tray Icon)")
+        chk_tray.setChecked(True)
+        chk_tray.setStyleSheet(chk_style)
 
-        card_layout.addWidget(self.chk_minimize_to_tray)
-        layout.addWidget(card)
+        chk_notifications = QCheckBox("Exibir notificações do sistema")
+        chk_notifications.setChecked(True)
+        chk_notifications.setStyleSheet(chk_style)
 
-        layout.addStretch()
+        beh_layout.addWidget(chk_startup)
+        beh_layout.addWidget(chk_tray)
+        beh_layout.addWidget(chk_notifications)
 
-        self._update_button_states(saved_theme)
+        content_layout.addWidget(card_behavior)
 
-    def _select_theme(self, theme_id: str) -> None:
-        """Salva o tema e aplica IMEDIATAMENTE no aplicativo inteiro."""
-        self.settings.setValue("theme", theme_id)
-        self._update_button_states(theme_id)
-
-        style = THEMES.get(theme_id, THEMES["dark"])
-        app = QApplication.instance()
-        if app:
-            app.setStyleSheet(style)
-            for widget in app.allWidgets():
-                widget.style().unpolish(widget)
-                widget.style().polish(widget)
-                widget.update()
-
-        self.theme_changed.emit(theme_id)
-
-    def _update_button_states(self, active_theme_id: str) -> None:
-        """Marca o botão do tema atual como ativo."""
-        for theme_id, btn in self.theme_buttons.items():
-            btn.setChecked(theme_id == active_theme_id)
-
-    def _on_close_to_tray_toggled(self, checked: bool) -> None:
-        """Salva a chave exata 'minimize_to_tray' e sincroniza a legada 'close_to_tray'."""
-        self.settings.setValue("minimize_to_tray", checked)
-        self.settings.setValue("close_to_tray", checked)
+        content_layout.addStretch()
+        scroll.setWidget(content_widget)
+        main_layout.addWidget(scroll)

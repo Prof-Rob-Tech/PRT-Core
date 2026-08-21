@@ -46,6 +46,34 @@ SVG_ICONS = {
     "plugins": """<svg viewBox="0 0 24 24" fill="none" stroke="#A1A1AA" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>""",
 }
 
+STYLE_ACTIVE = """
+    QPushButton {
+        text-align: left;
+        padding: 8px 12px;
+        border-radius: 6px;
+        background-color: #2563EB;
+        color: #FFFFFF;
+        font-weight: bold;
+        border: none;
+    }
+"""
+
+STYLE_INACTIVE = """
+    QPushButton {
+        text-align: left;
+        padding: 8px 12px;
+        border-radius: 6px;
+        background-color: transparent;
+        color: #A1A1AA;
+        font-weight: 500;
+        border: none;
+    }
+    QPushButton:hover {
+        background-color: #18181B;
+        color: #FFFFFF;
+    }
+"""
+
 
 def create_icon_from_svg(svg_code: str, size: int = 18) -> QIcon:
     if HAS_SVG and svg_code:
@@ -64,7 +92,6 @@ class PRTSidebar(QWidget):
 
     def __init__(self, parent=None, on_navigate=None) -> None:
         super().__init__(parent)
-        # OBRIGATÓRIO PARA O QT PINTAR O BACKGROUND DA SIDEBAR VIA STYLESHEET
         self.setAttribute(Qt.WA_StyledBackground, True)
         
         self.on_navigate_callback = on_navigate
@@ -72,13 +99,6 @@ class PRTSidebar(QWidget):
         self.active_route = "dashboard"
 
         self.setFixedWidth(240)
-        self.setStyleSheet("""
-            QScrollArea {
-                border: none;
-                background-color: transparent;
-            }
-        """)
-
         self._setup_ui()
 
     def connect_main_window(self, main_window) -> None:
@@ -108,9 +128,10 @@ class PRTSidebar(QWidget):
         scroll_area = QScrollArea(self)
         scroll_area.setWidgetResizable(True)
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setStyleSheet("border: none; background: transparent;")
 
         scroll_widget = QWidget()
-        scroll_widget.setStyleSheet("background-color: transparent;")
+        scroll_widget.setStyleSheet("background: transparent;")
         scroll_layout = QVBoxLayout(scroll_widget)
         scroll_layout.setContentsMargins(0, 0, 0, 0)
         scroll_layout.setSpacing(4)
@@ -177,7 +198,6 @@ class PRTSidebar(QWidget):
 
     def _add_menu_item(self, layout: QVBoxLayout, label: str, icon_key: str, route_id: str) -> None:
         btn = QPushButton(f"  {label}")
-        btn.setCheckable(True)
         btn.setCursor(Qt.PointingHandCursor)
         btn.setIconSize(QSize(18, 18))
 
@@ -198,4 +218,7 @@ class PRTSidebar(QWidget):
     def set_active_route(self, route_id: str) -> None:
         self.active_route = route_id
         for r_id, btn in self.buttons.items():
-            btn.setChecked(r_id == route_id)
+            if r_id == route_id:
+                btn.setStyleSheet(STYLE_ACTIVE)
+            else:
+                btn.setStyleSheet(STYLE_INACTIVE)

@@ -29,8 +29,6 @@ from PySide6.QtWidgets import (
 from ui.widgets.sidebar import PRTSidebar
 
 # --- IMPORTAÇÃO SEGURA DAS PÁGINAS ---
-# --- IMPORTAÇÃO DAS PÁGINAS COM PRINT DE ERRO ---
-# --- IMPORTAÇÃO SEGURA DAS PÁGINAS ---
 try:
     from ui.pages.dashboard_page import DashboardPage
 except Exception as e:
@@ -103,18 +101,6 @@ except Exception as e:
     print(f"❌ ERRO AO IMPORTAR PlaceholderPage: {e}")
     PlaceholderPage = None
 
-try:
-    from ui.pages.browser_page import BrowserPage
-except Exception as e:
-    print(f"❌ ERRO AO IMPORTAR BrowserPage: {e}")
-    BrowserPage = None
-
-try:
-    from ui.pages.connector_page import ConnectorPage
-except Exception as e:
-    print(f"❌ ERRO AO IMPORTAR ConnectorPage: {e}")
-    ConnectorPage = None
-
 
 THEME_STYLES = {
     "dark": """
@@ -142,7 +128,7 @@ THEME_STYLES = {
             color: #FFFFFF;
         }
         PRTSidebar QPushButton:checked {
-            background-color: #27272A;
+            background-color: #2563EB; /* Botão Azul de Destaque */
             color: #FFFFFF;
             font-weight: bold;
         }
@@ -223,8 +209,8 @@ THEME_STYLES = {
             color: #0F172A;
         }
         PRTSidebar QPushButton:checked {
-            background-color: #E2E8F0;
-            color: #0F172A;
+            background-color: #2563EB;
+            color: #FFFFFF;
             font-weight: bold;
         }
         PRTSidebar QLabel#sectionHeader { color: #94A3B8; }
@@ -307,8 +293,8 @@ THEME_STYLES = {
             color: #00F0FF;
         }
         PRTSidebar QPushButton:checked {
-            background-color: #381A72;
-            color: #FF007F;
+            background-color: #2563EB;
+            color: #FFFFFF;
             font-weight: bold;
         }
         PRTSidebar QLabel#sectionHeader { color: #FF007F; }
@@ -400,7 +386,7 @@ class PRTMainWindow(QMainWindow):
 
     def _instantiate_page(self, page_cls, title_fallback="Página", **kwargs):
         if not page_cls:
-            print(f"⚠️ AVISO: A classe da página '{title_fallback}' está NULA (Falhou no import la no topo!)")
+            print(f"⚠️ AVISO: A classe da página '{title_fallback}' está NULA (Falhou no import lá no topo!)")
             return self._create_placeholder(title_fallback)
 
         try:

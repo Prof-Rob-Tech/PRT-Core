@@ -1,409 +1,238 @@
 """
 ===========================================================
-PRT Labs - UI / Pages
+PRT Labs - UI / Updates Page
 Class: UpdatesPage
-
-Description:
-    Página de Gerenciamento de Atualizações do PRT NEXUS,
-    motores de extração (yt-dlp/ffmpeg) e Changelog.
+Description: Tela de Atualizações adaptativa a temas do PRT Nexus
 ===========================================================
 """
 
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QCheckBox,
-    QComboBox,
-    QFrame,
-    QHBoxLayout,
-    QLabel,
-    QProgressBar,
-    QPushButton,
-    QScrollArea,
-    QVBoxLayout,
-    QWidget,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+    QPushButton, QFrame, QCheckBox, QComboBox, QScrollArea
 )
 
-CHANGELOG_DATA = [
-    {
-        "version": "v0.1.0-alpha",
-        "date": "13/08/2026",
-        "tag": "Atual",
-        "changes": [
-            "✨ Lançamento da nova UI do Gerenciador de Plugins.",
-            "🐛 Correção no fechamento para a bandeja do sistema (Tray Icon).",
-            "⚡ Suporte a múltiplos temas (Dark, Light, Cyber).",
-            "🌐 Conectores integrados para Kiwify, Hotmart, Vimeo e YouTube.",
-        ],
-    },
-    {
-        "version": "v0.0.9-alpha",
-        "date": "01/08/2026",
-        "tag": "Anterior",
-        "changes": [
-            "🚀 Mapeamento e captura HLS para Panda Video.",
-            "🛠️ Sistema de download em segundo plano reestruturado.",
-            "🔒 Melhorias na validação de licenças.",
-        ],
-    },
-]
 
-ENGINES_DATA = [
-    {
-        "id": "ytdlp",
-        "name": "Core Extractor (yt-dlp)",
-        "version": "2026.08.01",
-        "status": "● Atualizado",
-    },
-    {
-        "id": "ffmpeg",
-        "name": "Media Converter (FFmpeg)",
-        "version": "n6.1.1",
-        "status": "● Atualizado",
-    },
-    {
-        "id": "chromium",
-        "name": "Browser Engine (Chromium Core)",
-        "version": "v126.0",
-        "status": "● Atualizado",
-    },
-]
+class BaseCard(QFrame):
+    """Card container genérico adaptável aos temas Claro e Escuro."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("updateCard")
+        self.setStyleSheet("""
+            QFrame#updateCard {
+                background-color: rgba(128, 128, 128, 0.05);
+                border: 1px solid rgba(128, 128, 128, 0.18);
+                border-radius: 8px;
+                padding: 10px;
+            }
+        """)
 
 
 class UpdatesPage(QWidget):
-    """Página de Atualizações do PRT NEXUS."""
+    """Página de Atualizações adaptativa aos temas do PRT Nexus."""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *args, **kwargs):
         super().__init__(parent)
-        self._build_ui()
+        self.setObjectName("updatesPage")
+        self._setup_ui()
 
-    def _build_ui(self):
+    def _setup_ui(self):
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(24, 24, 24, 24)
-        main_layout.setSpacing(20)
+        main_layout.setContentsMargins(20, 16, 20, 16)
+        main_layout.setSpacing(14)
 
-        # --- ÁREA COM SCROLL ---
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setStyleSheet("""
-            QScrollArea { border: none; background-color: transparent; }
-            QScrollBar:vertical {
-                background-color: #09090B; width: 8px; border-radius: 4px;
-            }
-            QScrollBar::handle:vertical {
-                background-color: #27272A; border-radius: 4px;
-            }
-        """)
-
-        scroll_content = QWidget()
-        scroll_content.setStyleSheet("background-color: transparent;")
-        content_layout = QVBoxLayout(scroll_content)
-        content_layout.setContentsMargins(0, 0, 10, 0)
-        content_layout.setSpacing(20)
-
-        # --- CABEÇALHO DA PÁGINA ---
+        # 1. Cabeçalho
         header_layout = QVBoxLayout()
-        header_layout.setSpacing(6)
+        header_layout.setSpacing(4)
 
-        title_layout = QHBoxLayout()
-        title_icon = QLabel("🔄")
-        title_icon.setStyleSheet("font-size: 22px;")
-        title_lbl = QLabel("Central de Atualizações")
-        title_lbl.setStyleSheet(
-            "font-size: 20px; font-weight: bold; color: #FFFFFF;"
-        )
+        title = QLabel("🔄 Central de Atualizações")
+        title.setStyleSheet("font-size: 18px; font-weight: bold; border: none;")
 
-        title_layout.addWidget(title_icon)
-        title_layout.addWidget(title_lbl)
-        title_layout.addStretch()
+        subtitle = QLabel("Mantenha o PRT NEXUS e seus motores de extração sempre atualizados para garantir compatibilidade.")
+        subtitle.setStyleSheet("font-size: 12px; opacity: 0.65; border: none;")
 
-        subtitle_lbl = QLabel(
-            "Mantenha o PRT NEXUS e seus motores de extração sempre atualizados para garantir compatibilidade."
-        )
-        subtitle_lbl.setStyleSheet("font-size: 13px; color: #71717A;")
+        header_layout.addWidget(title)
+        header_layout.addWidget(subtitle)
+        main_layout.addLayout(header_layout)
 
-        header_layout.addLayout(title_layout)
-        header_layout.addWidget(subtitle_lbl)
-        content_layout.addLayout(header_layout)
+        # Scroll Area
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
 
-        # --- HERO CARD (STATUS PRINCIPAL) ---
-        self.hero_card = QFrame()
-        self.hero_card.setStyleSheet("""
-            QFrame {
-                background: QLinearGradient(x1: 0, y1: 0, x2: 1, y2: 0, stop: 0 #121215, stop: 1 #181824);
-                border: 1px solid #27272A;
-                border-radius: 12px;
-            }
-        """)
-        hero_layout = QVBoxLayout(self.hero_card)
-        hero_layout.setContentsMargins(20, 20, 20, 20)
-        hero_layout.setSpacing(14)
+        content_widget = QWidget()
+        content_widget.setStyleSheet("background: transparent;")
+        content_layout = QVBoxLayout(content_widget)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(16)
 
-        top_hero = QHBoxLayout()
+        # 2. Card de Versão do App
+        card_version = BaseCard()
+        v_layout = QHBoxLayout(card_version)
+        v_layout.setContentsMargins(12, 12, 12, 12)
 
-        status_box = QVBoxLayout()
-        status_box.setSpacing(4)
+        v_info = QVBoxLayout()
+        v_info.setSpacing(4)
+        lbl_app_ver = QLabel("PRT NEXUS v0.1.0-alpha")
+        lbl_app_ver.setStyleSheet("font-size: 16px; font-weight: bold; border: none;")
 
-        self.lbl_app_version = QLabel("PRT NEXUS v0.1.0-alpha")
-        self.lbl_app_version.setStyleSheet(
-            "font-size: 18px; font-weight: bold; color: #FFFFFF;"
-        )
+        lbl_status = QLabel("🟢 O seu aplicativo está atualizado na versão mais recente.")
+        lbl_status.setStyleSheet("font-size: 12px; color: #10B981; font-weight: 500; border: none;")
 
-        self.lbl_status_msg = QLabel(
-            "● O seu aplicativo está atualizado na versão mais recente."
-        )
-        self.lbl_status_msg.setStyleSheet(
-            "font-size: 13px; color: #22C55E; font-weight: 500;"
-        )
+        v_info.addWidget(lbl_app_ver)
+        v_info.addWidget(lbl_status)
 
-        status_box.addWidget(self.lbl_app_version)
-        status_box.addWidget(self.lbl_status_msg)
-        top_hero.addLayout(status_box)
-
-        top_hero.addStretch()
-
-        self.btn_check_updates = QPushButton("🔍 Verificar Atualizações")
-        self.btn_check_updates.setCursor(Qt.PointingHandCursor)
-        self.btn_check_updates.setStyleSheet("""
+        btn_check = QPushButton("🔍 Verificar Atualizações")
+        btn_check.setFixedHeight(36)
+        btn_check.setCursor(Qt.PointingHandCursor)
+        btn_check.setStyleSheet("""
             QPushButton {
-                background-color: #6366F1;
+                background-color: #2563EB;
                 color: #FFFFFF;
-                border: none;
-                border-radius: 8px;
-                padding: 10px 18px;
-                font-weight: bold;
-                font-size: 13px;
-            }
-            QPushButton:hover {
-                background-color: #4F46E5;
-            }
-            QPushButton:disabled {
-                background-color: #3F3F46;
-                color: #71717A;
-            }
-        """)
-        self.btn_check_updates.clicked.connect(self._simulate_check_updates)
-        top_hero.addWidget(self.btn_check_updates)
-
-        hero_layout.addLayout(top_hero)
-
-        # Barra de Progresso (Invisível por padrão)
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setFixedHeight(6)
-        self.progress_bar.setTextVisible(False)
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                background-color: #27272A;
-                border-radius: 3px;
+                font-weight: 600;
+                border-radius: 6px;
+                padding: 0 16px;
                 border: none;
             }
-            QProgressBar::chunk {
-                background-color: #6366F1;
-                border-radius: 3px;
-            }
+            QPushButton:hover { background-color: #1D4ED8; }
         """)
-        self.progress_bar.hide()
-        hero_layout.addWidget(self.progress_bar)
 
-        content_layout.addWidget(self.hero_card)
+        v_layout.addLayout(v_info)
+        v_layout.addStretch()
+        v_layout.addWidget(btn_check)
+        content_layout.addWidget(card_version)
 
-        # --- SEÇÃO DE MOTORES E COMPONENTES ---
-        engines_title = QLabel("⚙️ Motores & Componentes de Download")
-        engines_title.setStyleSheet(
-            "font-size: 14px; font-weight: bold; color: #8E8E93; text-transform: uppercase;"
-        )
-        content_layout.addWidget(engines_title)
+        # 3. Motores & Componentes
+        sec_engines = QLabel("⚙️ MOTORES & COMPONENTES DE DOWNLOAD")
+        sec_engines.setStyleSheet("font-size: 11px; font-weight: bold; opacity: 0.65; border: none;")
+        content_layout.addWidget(sec_engines)
 
-        engines_card = QFrame()
-        engines_card.setStyleSheet("""
-            QFrame {
-                background-color: #121215;
-                border: 1px solid #27272A;
-                border-radius: 10px;
-            }
-        """)
-        engines_layout = QVBoxLayout(engines_card)
-        engines_layout.setContentsMargins(16, 12, 16, 12)
-        engines_layout.setSpacing(10)
+        card_engines = BaseCard()
+        eng_layout = QVBoxLayout(card_engines)
+        eng_layout.setSpacing(10)
 
-        for eng in ENGINES_DATA:
+        engines = [
+            ("Core Extractor (yt-dlp)", "Versão: 2026.08.01"),
+            ("Media Converter (FFmpeg)", "Versão: n6.1.1"),
+            ("Browser Engine (Chromium Core)", "Versão: v126.0"),
+        ]
+
+        for name, ver in engines:
             row = QHBoxLayout()
-            row.setContentsMargins(4, 6, 4, 6)
+            lbl_n = QLabel(name)
+            lbl_n.setStyleSheet("font-weight: bold; font-size: 13px; border: none;")
+            lbl_v = QLabel(ver)
+            lbl_v.setStyleSheet("font-size: 11px; opacity: 0.6; margin-left: 8px; border: none;")
 
-            eng_name = QLabel(eng["name"])
-            eng_name.setStyleSheet(
-                "font-size: 13px; font-weight: bold; color: #FFFFFF;"
-            )
+            badge = QLabel("• Atualizado")
+            badge.setStyleSheet("color: #10B981; font-weight: 600; font-size: 12px; border: none;")
 
-            eng_ver = QLabel(f"Versão: {eng['version']}")
-            eng_ver.setStyleSheet("font-size: 12px; color: #71717A;")
-
-            status_pill = QLabel(eng["status"])
-            status_pill.setStyleSheet("""
-                background-color: rgba(34, 197, 94, 0.1);
-                color: #22C55E;
-                border: 1px solid rgba(34, 197, 94, 0.2);
-                border-radius: 10px;
-                padding: 3px 8px;
-                font-size: 11px;
-                font-weight: bold;
-            """)
-
-            btn_update_engine = QPushButton("Atualizar Engine")
-            btn_update_engine.setCursor(Qt.PointingHandCursor)
-            btn_update_engine.setStyleSheet("""
+            btn_update_eng = QPushButton("Atualizar Engine")
+            btn_update_eng.setFixedHeight(28)
+            btn_update_eng.setCursor(Qt.PointingHandCursor)
+            btn_update_eng.setStyleSheet("""
                 QPushButton {
-                    background-color: #18181B;
-                    color: #D4D4D8;
-                    border: 1px solid #3F3F46;
-                    border-radius: 6px;
-                    padding: 5px 12px;
+                    background-color: rgba(128, 128, 128, 0.12);
+                    border: 1px solid rgba(128, 128, 128, 0.25);
+                    border-radius: 5px;
+                    padding: 0 10px;
                     font-size: 11px;
-                    font-weight: 500;
                 }
                 QPushButton:hover {
-                    background-color: #27272A;
-                    color: #FFFFFF;
-                    border-color: #6366F1;
+                    background-color: rgba(128, 128, 128, 0.22);
                 }
             """)
 
-            row.addWidget(eng_name)
-            row.addWidget(eng_ver)
+            row.addWidget(lbl_n)
+            row.addWidget(lbl_v)
             row.addStretch()
-            row.addWidget(status_pill)
-            row.addWidget(btn_update_engine)
+            row.addWidget(badge)
+            row.addWidget(btn_update_eng)
+            eng_layout.addLayout(row)
 
-            engines_layout.addLayout(row)
+        content_layout.addWidget(card_engines)
 
-            # Divisor simples entre itens
-            if eng != ENGINES_DATA[-1]:
-                sep = QFrame()
-                sep.setFrameShape(QFrame.HLine)
-                sep.setStyleSheet("background-color: #1F1F23; border: none;")
-                sep.setFixedHeight(1)
-                engines_layout.addWidget(sep)
+        # 4. Preferências de Atualização
+        sec_prefs = QLabel("⚙️ PREFERÊNCIAS DE ATUALIZAÇÃO")
+        sec_prefs.setStyleSheet("font-size: 11px; font-weight: bold; opacity: 0.65; border: none;")
+        content_layout.addWidget(sec_prefs)
 
-        content_layout.addWidget(engines_card)
+        card_prefs = BaseCard()
+        pref_layout = QVBoxLayout(card_prefs)
+        pref_layout.setSpacing(10)
 
-        # --- PREFERÊNCIAS DE ATUALIZAÇÃO ---
-        pref_title = QLabel("🎛️ Preferências de Atualização")
-        pref_title.setStyleSheet(
-            "font-size: 14px; font-weight: bold; color: #8E8E93; text-transform: uppercase;"
-        )
-        content_layout.addWidget(pref_title)
-
-        pref_card = QFrame()
-        pref_card.setStyleSheet("""
-            QFrame {
-                background-color: #121215;
-                border: 1px solid #27272A;
-                border-radius: 10px;
-            }
-        """)
-        pref_layout = QVBoxLayout(pref_card)
-        pref_layout.setContentsMargins(16, 16, 16, 16)
-        pref_layout.setSpacing(12)
-
-        chk_auto = QCheckBox(
-            "Verificar atualizações automaticamente ao iniciar o sistema"
-        )
+        chk_auto = QCheckBox("Verificar atualizações automaticamente ao iniciar o sistema")
         chk_auto.setChecked(True)
-        chk_auto.setStyleSheet("font-size: 13px; color: #E4E4E7;")
+        chk_auto.setStyleSheet("font-size: 12px; border: none;")
 
-        channel_layout = QHBoxLayout()
-        channel_lbl = QLabel("Canal de Lançamento:")
-        channel_lbl.setStyleSheet("font-size: 13px; color: #A1A1AA;")
+        channel_box = QHBoxLayout()
+        lbl_chan = QLabel("Canal de Lançamento:")
+        lbl_chan.setStyleSheet("font-size: 12px; border: none;")
 
-        channel_combo = QComboBox()
-        channel_combo.addItems(
-            ["Estável (Recomendado)", "Beta / Preview (Recursos antecipados)"]
-        )
-        channel_combo.setStyleSheet("""
+        combo_chan = QComboBox()
+        combo_chan.setFixedHeight(30)
+        combo_chan.addItems(["Estável (Recomendado)", "Beta", "Desenvolvedor (Nightly)"])
+        combo_chan.setStyleSheet("""
             QComboBox {
-                background-color: #18181B;
-                color: #FFFFFF;
-                border: 1px solid #3F3F46;
-                border-radius: 6px;
-                padding: 6px 12px;
-                font-size: 12px;
+                background-color: rgba(128, 128, 128, 0.08);
+                border: 1px solid rgba(128, 128, 128, 0.25);
+                border-radius: 5px;
+                padding: 2px 8px;
             }
         """)
 
-        channel_layout.addWidget(channel_lbl)
-        channel_layout.addWidget(channel_combo)
-        channel_layout.addStretch()
+        channel_box.addWidget(lbl_chan)
+        channel_box.addWidget(combo_chan)
+        channel_box.addStretch()
 
         pref_layout.addWidget(chk_auto)
-        pref_layout.addLayout(channel_layout)
+        pref_layout.addLayout(channel_box)
+        content_layout.addWidget(card_prefs)
 
-        content_layout.addWidget(pref_card)
+        # 5. Histórico (Changelog)
+        sec_changelog = QLabel("📜 HISTÓRICO DE ATUALIZAÇÕES (CHANGELOG)")
+        sec_changelog.setStyleSheet("font-size: 11px; font-weight: bold; opacity: 0.65; border: none;")
+        content_layout.addWidget(sec_changelog)
 
-        # --- HISTÓRICO DE VERSÕES (CHANGELOG) ---
-        changelog_title = QLabel("📜 Histórico de Atualizações (Changelog)")
-        changelog_title.setStyleSheet(
-            "font-size: 14px; font-weight: bold; color: #8E8E93; text-transform: uppercase;"
-        )
-        content_layout.addWidget(changelog_title)
+        changelogs = [
+            ("v0.1.0-alpha", "13/08/2026", [
+                "✨ Lançamento da nova UI do Gerenciador de Plugins.",
+                "🐛 Correção no fechamento para a bandeja do sistema (Tray Icon).",
+                "🎨 Suporte a múltiplos temas (Dark, Light, Cyber).",
+                "🌐 Conectores integrados para Kiwify, Hotmart, Vimeo e YouTube."
+            ]),
+            ("v0.0.9-alpha", "01/08/2026", [
+                "🚀 Mapeamento e captura HLS para Panda Video.",
+                "⚙️ Sistema de download em segundo plano reestruturado.",
+                "🔒 Melhorias na validação de licenças."
+            ])
+        ]
 
-        for item in CHANGELOG_DATA:
-            card = QFrame()
-            card.setStyleSheet("""
-                QFrame {
-                    background-color: #121215;
-                    border: 1px solid #27272A;
-                    border-radius: 10px;
-                }
-            """)
-            c_layout = QVBoxLayout(card)
-            c_layout.setContentsMargins(16, 14, 16, 14)
-            c_layout.setSpacing(8)
+        for ver, date_str, items in changelogs:
+            card_log = BaseCard()
+            log_layout = QVBoxLayout(card_log)
+            log_layout.setSpacing(6)
 
-            head_row = QHBoxLayout()
-            v_title = QLabel(item["version"])
-            v_title.setStyleSheet(
-                "font-size: 14px; font-weight: bold; color: #FFFFFF;"
-            )
+            h_box = QHBoxLayout()
+            lbl_ver = QLabel(ver)
+            lbl_ver.setStyleSheet("font-weight: bold; font-size: 13px; border: none;")
 
-            v_date = QLabel(item["date"])
-            v_date.setStyleSheet("font-size: 12px; color: #71717A;")
+            lbl_date = QLabel(date_str)
+            lbl_date.setStyleSheet("font-size: 11px; opacity: 0.6; border: none;")
 
-            head_row.addWidget(v_title)
-            head_row.addWidget(v_date)
-            head_row.addStretch()
+            h_box.addWidget(lbl_ver)
+            h_box.addWidget(lbl_date)
+            h_box.addStretch()
 
-            c_layout.addLayout(head_row)
+            log_layout.addLayout(h_box)
 
-            for change in item["changes"]:
-                lbl_change = QLabel(change)
-                lbl_change.setStyleSheet("font-size: 12px; color: #A1A1AA;")
-                c_layout.addWidget(lbl_change)
+            for item in items:
+                lbl_item = QLabel(item)
+                lbl_item.setStyleSheet("font-size: 12px; opacity: 0.85; margin-left: 6px; border: none;")
+                log_layout.addWidget(lbl_item)
 
-            content_layout.addWidget(card)
+            content_layout.addWidget(card_log)
 
-        scroll_area.setWidget(scroll_content)
-        main_layout.addWidget(scroll_area)
-
-    def _simulate_check_updates(self):
-        """Simulação visual de busca por atualizações."""
-        self.btn_check_updates.setEnabled(False)
-        self.btn_check_updates.setText("Buscando...")
-        self.progress_bar.setValue(0)
-        self.progress_bar.show()
-
-        self.timer_val = 0
-
-        def update_progress():
-            self.timer_val += 20
-            self.progress_bar.setValue(self.timer_val)
-            if self.timer_val >= 100:
-                self.timer.stop()
-                self.progress_bar.hide()
-                self.btn_check_updates.setEnabled(True)
-                self.btn_check_updates.setText("🔍 Verificar Atualizações")
-                self.lbl_status_msg.setText(
-                    "● PRT NEXUS já está na versão mais recente disponível."
-                )
-
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(update_progress)
-        self.timer.start(150)
+        content_layout.addStretch()
+        scroll.setWidget(content_widget)
+        main_layout.addWidget(scroll)

@@ -29,65 +29,91 @@ from PySide6.QtWidgets import (
 from ui.widgets.sidebar import PRTSidebar
 
 # --- IMPORTAÇÃO SEGURA DAS PÁGINAS ---
+# --- IMPORTAÇÃO DAS PÁGINAS COM PRINT DE ERRO ---
+# --- IMPORTAÇÃO SEGURA DAS PÁGINAS ---
 try:
     from ui.pages.dashboard_page import DashboardPage
-except Exception:
+except Exception as e:
+    print(f"❌ ERRO AO IMPORTAR DashboardPage: {e}")
     DashboardPage = None
 
 try:
     from ui.pages.browser_page import BrowserPage
-except Exception:
+except Exception as e:
+    print(f"❌ ERRO AO IMPORTAR BrowserPage: {e}")
     BrowserPage = None
 
 try:
     from ui.pages.downloads_page import DownloadsPage
-except Exception:
+except Exception as e:
+    print(f"❌ ERRO AO IMPORTAR DownloadsPage: {e}")
     DownloadsPage = None
 
 try:
     from ui.pages.library_page import LibraryPage
-except Exception:
+except Exception as e:
+    print(f"❌ ERRO AO IMPORTAR LibraryPage: {e}")
     LibraryPage = None
 
 try:
     from ui.pages.favorites_page import FavoritesPage
-except Exception:
+except Exception as e:
+    print(f"❌ ERRO AO IMPORTAR FavoritesPage: {e}")
     FavoritesPage = None
 
 try:
     from ui.pages.history_page import HistoryPage
-except Exception:
+except Exception as e:
+    print(f"❌ ERRO AO IMPORTAR HistoryPage: {e}")
     HistoryPage = None
 
 try:
     from ui.pages.connector_page import ConnectorPage
-except Exception:
+except Exception as e:
+    print(f"❌ ERRO AO IMPORTAR ConnectorPage: {e}")
     ConnectorPage = None
 
 try:
     from ui.pages.settings_page import SettingsPage
-except Exception:
+except Exception as e:
+    print(f"❌ ERRO AO IMPORTAR SettingsPage: {e}")
     SettingsPage = None
 
 try:
     from ui.pages.license_page import LicensePage
-except Exception:
+except Exception as e:
+    print(f"❌ ERRO AO IMPORTAR LicensePage: {e}")
     LicensePage = None
 
 try:
     from ui.pages.plugins_page import PluginsPage
-except Exception:
+except Exception as e:
+    print(f"❌ ERRO AO IMPORTAR PluginsPage: {e}")
     PluginsPage = None
 
 try:
     from ui.pages.updates_page import UpdatesPage
-except Exception:
+except Exception as e:
+    print(f"❌ ERRO AO IMPORTAR UpdatesPage: {e}")
     UpdatesPage = None
 
 try:
-    from ui.pages.placeholder_page import PlaceholderPage  # type: ignore
-except Exception:
+    from ui.pages.placeholder_page import PlaceholderPage
+except Exception as e:
+    print(f"❌ ERRO AO IMPORTAR PlaceholderPage: {e}")
     PlaceholderPage = None
+
+try:
+    from ui.pages.browser_page import BrowserPage
+except Exception as e:
+    print(f"❌ ERRO AO IMPORTAR BrowserPage: {e}")
+    BrowserPage = None
+
+try:
+    from ui.pages.connector_page import ConnectorPage
+except Exception as e:
+    print(f"❌ ERRO AO IMPORTAR ConnectorPage: {e}")
+    ConnectorPage = None
 
 
 THEME_STYLES = {
@@ -374,40 +400,16 @@ class PRTMainWindow(QMainWindow):
 
     def _instantiate_page(self, page_cls, title_fallback="Página", **kwargs):
         if not page_cls:
+            print(f"⚠️ AVISO: A classe da página '{title_fallback}' está NULA (Falhou no import la no topo!)")
             return self._create_placeholder(title_fallback)
 
         try:
             return page_cls(parent=self, **kwargs)
-        except TypeError:
-            pass
-
-        try:
-            return page_cls(**kwargs)
-        except TypeError:
-            pass
-
-        if "platform_key" in kwargs:
-            p_key = kwargs["platform_key"]
-            try:
-                return page_cls(p_key, parent=self)
-            except TypeError:
-                pass
-            try:
-                return page_cls(p_key)
-            except TypeError:
-                pass
-
-        try:
-            return page_cls(parent=self)
-        except TypeError:
-            pass
-
-        try:
-            return page_cls()
-        except Exception:
-            pass
-
-        return self._create_placeholder(title_fallback)
+        except Exception as e:
+            print(f"❌ ERRO CRÍTICO ao instanciar '{title_fallback}': {e}")
+            import traceback
+            traceback.print_exc()
+            return self._create_placeholder(title_fallback)
 
     def _create_placeholder(self, title: str):
         if PlaceholderPage:
